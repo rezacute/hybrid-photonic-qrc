@@ -1,7 +1,14 @@
-name: t4
-device: cuda
-cuda_visible_devices: "0"
+# GPU Hardware Configuration (Tesla T4)
+
+device: "cuda"
 mixed_precision: true
 batch_size: 256
 num_workers: 4
-cuquantum_enabled: true
+pin_memory: true
+
+quantum_backend:
+  simulator: "aer"
+  method: "statevector"
+  aer_device: "GPU"
+  cuStateVec_enable: true
+  fallback_to_cpu: true

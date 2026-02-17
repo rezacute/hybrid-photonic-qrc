@@ -1,11 +1,30 @@
-name: ablation_scale
-description: Ablation A3 - Multi-scale vs Single-scale photonic
+# Ablation: Scale (Single vs Multi-scale)
 
-models:
-  - hpqrc
-  - hpqrc_single_scale
+name: "ablation_scale"
+description: "Compare single-scale vs multi-scale photonic delay loops"
 
-data: acn_caltech
-horizons: [1, 6, 24, 72, 168]
-n_seeds: 10
-n_folds: 5
+variants:
+  - "single_24"
+  - "single_168"
+  - "multi_scale"
+
+ablation:
+  variant_name: ""
+  experiment_name: "ablation_scale"
+  output_dir: "./outputs/ablation"
+
+model_overrides:
+  single_24:
+    photonic:
+      kernel_sizes: [24]
+    n_banks: 1
+  
+  single_168:
+    photonic:
+      kernel_sizes: [168]
+    n_banks: 1
+  
+  multi_scale:
+    photonic:
+      kernel_sizes: [4, 24, 96, 168, 672]
+    n_banks: 5

@@ -1,9 +1,37 @@
-name: ablation_qubits
-description: Ablation A5 - Sweep number of qubits
+# Ablation: Qubits Sweep
 
-n_qubits: [4, 6, 8, 10, 12]
+name: "ablation_qubits"
+description: "Sweep number of qubits"
 
-data: acn_caltech
-horizons: [1, 6, 24]
-n_seeds: 5
-n_folds: 3
+variants:
+  - "qubits_4"
+  - "qubits_6"
+  - "qubits_8"
+  - "qubits_10"
+  - "qubits_12"
+
+ablation:
+  variant_name: ""
+  experiment_name: "ablation_qubits"
+  output_dir: "./outputs/ablation"
+
+model_overrides:
+  qubits_4:
+    quantum:
+      n_qubits: 4
+  
+  qubits_6:
+    quantum:
+      n_qubits: 6
+  
+  qubits_8:
+    quantum:
+      n_qubits: 8
+  
+  qubits_10:
+    quantum:
+      n_qubits: 10
+  
+  qubits_12:
+    quantum:
+      n_qubits: 12

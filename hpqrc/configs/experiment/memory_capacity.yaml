@@ -1,13 +1,17 @@
-name: memory_capacity
-description: Memory capacity benchmark
+# Memory Capacity Benchmark
+
+name: "memory_capacity"
+description: "Run IPC/STM/NMC benchmarks"
 
 models:
-  - hpqrc
-  - qrc_baseline
-  - photonic_only
-  - esn
+  - "hpqrc"
+  - "qrc_baseline"
+  - "photonic_only"
+  - "esn"
 
-benchmarks:
-  - stm  # short-term memory
-  - ipc  # information processing capacity
-  - nmc  # nonlinear memory capacity
+max_delay: 200
+max_degree: 3
+
+dataset: "synthetic"
+
+output_dir: "./outputs/memory"

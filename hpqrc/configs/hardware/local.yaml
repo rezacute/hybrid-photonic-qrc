@@ -1,5 +1,14 @@
-name: local
-device: cpu
+# Local CPU Configuration
+
+device: "cpu"
+mixed_precision: false
 batch_size: 32
-num_workers: 2
-cuquantum_enabled: false
+num_workers: 0
+pin_memory: false
+
+quantum_backend:
+  simulator: "aer"
+  method: "statevector"
+  aer_device: "CPU"
+  cuStateVec_enable: false
+  fallback_to_cpu: true

@@ -1,12 +1,11 @@
 """
-Quantum Reservoir Computing Module - Qiskit 2.x Compatible
+Quantum Reservoir - Qiskit 2.x Compatible
 
-This module implements a quantum reservoir using Qiskit 2.x APIs.
-Following Qiskit 2.x migration rules:
-- Use V2 primitives (EstimatorV2, SamplerV2)
-- Use SparsePauliOp for observables
+Fixed-Hamiltonian quantum reservoir with Ising dynamics.
+Follows Qiskit 2.x migration rules:
+- Use SparsePauliOp from qiskit.quantum_info
 - Use AerSimulator from qiskit_aer
-- Explicit shots parameter in primitives
+- Use EstimatorV2 from qiskit_aer.primitives
 """
 
 import numpy as np
@@ -19,64 +18,75 @@ from qiskit_aer import AerSimulator
 from qiskit_aer.primitives import EstimatorV2
 
 
-class QuantumReservoirQiskit(nn.Module):
-    """Quantum Reservoir using Qiskit 2.x APIs.
+class QuantumReservoir(nn.Module):
+    """Fixed-Hamiltonian quantum reservoir with Ising dynamics.
     
-    Uses:
-    - AerSimulator for simulation
-    - EstimatorV2 for expectation values
-    - SparsePauliOp for observables
+    Key features:
+    - Fixed random J (ZZ couplings) and g (transverse fields) at init
+    - Angle encoding of input features
+    - Trotterized evolution
+    - Readout via Pauli expectation values
     """
     
     def __init__(
         self,
-        n_qubits: int = 6,
-        n_layers: int = 1,
-        coupling_strength: float = 1.0,
-        transverse_field: float = 0.5,
-        use_gpu: bool = False,
-        shots: Optional[int] = 1024,
+        n_qubits: int = 8,
+        coupling_range: Tuple[float, float] = (0.5, 1.5),
+        field_range: Tuple[float, float] = (0.5, 1.5),
+        evolution_time: float = 1.0,
+        n_trotter_steps: int = 10,
+        seed: int = 42,
     ):
         super().__init__()
         
         self.n_qubits = n_qubits
-        self.n_layers = n_layers
-        self.coupling_strength = coupling_strength
-        self.transverse_field = transverse_field
-        self.use_gpu = use_gpu
-        self.shots = shots
+        self.coupling_range = coupling_range
+        self.field_range = field_range
+        self.evolution_time = evolution_time
+        self.n_trotter_steps = n_trotter_steps
         
-        # Create simulator - Qiskit 2.x pattern
-        if use_gpu:
-            try:
-                self.simulator = AerSimulator(
-                    method='statevector',
-                    device='GPU'
-                )
-            except:
-                # Fallback to CPU
-                self.simulator = AerSimulator(method='statevector')
-        else:
-            self.simulator = AerSimulator(method='statevector')
+        # Set random seed
+        np.random.seed(seed)
+        torch.manual_seed(seed)
         
-        # Build observables - Qiskit 2.x uses SparsePauliOp
-        self.observables = self._build_observables()
-        
-        # Create estimator - Qiskit 2.x V2 primitive
-        self.estimator = EstimatorV2(
-            backend=self.simulator,
-            options={"shots": shots} if shots else {}
+        # Initialize fixed random parameters (not trainable)
+        # J coupling strengths for ZZ interactions
+        self.J = nn.Parameter(
+            torch.tensor(
+                np.random.uniform(coupling_range[0], coupling_range[1], n_qubits - 1)
+            ),
+            requires_grad=False
         )
         
-        # Output dimension: n_qubits * 3 (X, Y, Z per qubit)
-        self.output_dim = n_qubits * 3
+        # Transverse field strengths
+        self.g = nn.Parameter(
+            torch.tensor(
+                np.random.uniform(field_range[0], field_range[1], n_qubits)
+            ),
+            requires_grad=False
+        )
         
-        # Register non-trainable parameters
-        self.register_buffer("coupling", torch.tensor(coupling_strength))
-        self.register_buffer("field", torch.tensor(transverse_field))
+        # Output dimension: 3 * n_qubits (X, Y, Z for each qubit)
+        self.output_dim = 3 * n_qubits
+        
+        # Build observables using SparsePauliOp (Qiskit 2.x)
+        self.observables = self._build_observables()
+        
+        # Create simulator
+        self.simulator = AerSimulator(method='statevector')
+        
+        # Create estimator (Qiskit 2.x V2 primitive)
+        self.estimator = EstimatorV2(
+            backend=self.simulator,
+            options={"shots": None}  # Exact expectation values
+        )
     
     def _build_observables(self) -> List[SparsePauliOp]:
-        """Build Pauli observables using SparsePauliOp."""
+        """Build Pauli observables using SparsePauliOp.
+        
+        Returns:
+            List of SparsePauliOp for ⟨X_i⟩, ⟨Y_i⟩, ⟨Z_i⟩ for each qubit
+        """
         observables = []
         
         for i in range(self.n_qubits):
@@ -94,32 +104,44 @@ class QuantumReservoirQiskit(nn.Module):
         
         return observables
     
-    def _build_circuit(self, features: np.ndarray) -> QuantumCircuit:
-        """Build quantum circuit with angle encoding.
+    def build_circuit(self, input_features: np.ndarray) -> QuantumCircuit:
+        """Build quantum circuit with angle encoding and Ising evolution.
         
         Args:
-            features: Input features of shape (n_qubits,)
+            input_features: Array of shape (n_qubits,) - angles for encoding
         
         Returns:
             QuantumCircuit
         """
         qc = QuantumCircuit(self.n_qubits)
         
-        # Angle encoding - RY gates
+        # Initial superposition via H gates
         for i in range(self.n_qubits):
-            qc.ry(np.pi * features[i], i)
+            qc.h(i)
         
-        # Entangling layers - Qiskit 2.x style
-        for layer in range(self.n_layers):
-            # ZZ coupling (Ising interaction)
-            for i in range(self.n_qubits - 1):
-                qc.czz(i, i + 1)
+        # Trotterized evolution
+        dt = self.evolution_time / self.n_trotter_steps
+        
+        for step in range(self.n_trotter_steps):
+            # ZZ coupling (Ising interaction) - use CNOT + RZ
+            for i in range(self.n_qubits - 1:
+                qc.cnot(i, i + 1)
+                qc.rz(self.J[i].item() * dt, i + 1)
+                qc.cnot(i, i + 1)
             
             # Transverse field - RX gates
             for i in range(self.n_qubits):
-                qc.rx(self.transverse_field, i)
+                qc.rx(self.g[i].item() * dt, i)
+        
+        # Final angle encoding - RZ gates on input features
+        for i in range(min(len(input_features), self.n_qubits)):
+            qc.rz(input_features[i], i)
         
         return qc
+    
+    def get_observables(self) -> List[SparsePauliOp]:
+        """Return list of Pauli observables."""
+        return self.observables
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Process input through quantum reservoir.
@@ -128,7 +150,7 @@ class QuantumReservoirQiskit(nn.Module):
             x: Input features of shape (batch, n_qubits) or (batch, seq, n_qubits)
         
         Returns:
-            Expectation values of shape (batch, output_dim)
+            Expectation values of shape (batch, output_dim) or (batch, seq, output_dim)
         """
         if x.dim() == 2:
             return self._process_batch(x)
@@ -148,13 +170,14 @@ class QuantumReservoirQiskit(nn.Module):
         outputs = []
         
         for i in range(batch_size):
+            # Get input features
             features = x[i].detach().cpu().numpy()
             
             # Build circuit
-            qc = self._build_circuit(features)
+            circuit = self.build_circuit(features)
             
-            # Run simulation - Qiskit 2.x V2 primitive pattern
-            job = self.estimator.run([(qc, self.observables)])
+            # Run estimator (Qiskit 2.x V2 pattern)
+            job = self.estimator.run([(circuit, self.observables)])
             result = job.result()
             
             # Extract expectation values
@@ -168,147 +191,14 @@ class QuantumReservoirQiskit(nn.Module):
         return self.output_dim
 
 
-class AngleEncoder(nn.Module):
-    """Angle encoding for classical-to-quantum feature mapping - Qiskit 2.x."""
-    
-    def __init__(self, n_features: int, n_qubits: int):
-        super().__init__()
-        self.n_features = n_features
-        self.n_qubits = n_qubits
-        
-        # Projection layer if features != qubits
-        if n_features != n_qubits:
-            self.projection = nn.Linear(n_features, n_qubits)
-        else:
-            self.projection = nn.Identity()
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Angle encoding: θ = π * tanh(x)"""
-        x = self.projection(x)
-        return torch.pi * torch.tanh(x)
-
-
-class AmplitudeEncoder(nn.Module):
-    """Amplitude encoding - Qiskit 2.x."""
-    
-    def __init__(self, n_features: int, n_qubits: int):
-        super().__init__()
-        self.n_features = n_features
-        self.n_qubits = n_qubits
-        self.n_amplitudes = min(2 ** n_qubits, n_features)
-        
-        self.projection = nn.Linear(n_features, self.n_amplitudes)
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Amplitude encoding with normalization."""
-        amplitudes = self.projection(x)
-        amplitudes = amplitudes / (amplitudes.norm(dim=-1, keepdim=True) + 1e-8)
-        
-        # Pad to required size
-        if amplitudes.shape[-1] < 2 ** self.n_qubits:
-            pad_size = (2 ** self.n_qubits) - amplitudes.shape[-1]
-            amplitudes = torch.cat([
-                amplitudes,
-                torch.zeros(*amplitudes.shape[:-1], pad_size, device=amplitudes.device)
-            ], dim=-1)
-        
-        return amplitudes
-
-
-class IsingReservoir(nn.Module):
-    """Ising Hamiltonian quantum reservoir - Qiskit 2.x optimized."""
-    
-    def __init__(
-        self,
-        n_qubits: int = 6,
-        n_layers: int = 1,
-        j_coupling: float = 1.0,
-        h_field: float = 0.5,
-    ):
-        super().__init__()
-        
-        self.n_qubits = n_qubits
-        self.n_layers = n_layers
-        self.j_coupling = j_coupling
-        self.h_field = h_field
-        
-        # CPU simulator for speed
-        self.simulator = AerSimulator(method='statevector')
-        
-        # Observables
-        self.observables = self._build_observables()
-        
-        # Estimator - Qiskit 2.x V2
-        self.estimator = EstimatorV2(
-            backend=self.simulator,
-            options={"shots": 1024}
-        )
-        
-        self.output_dim = n_qubits * 3
-    
-    def _build_observables(self) -> List[SparsePauliOp]:
-        """Build observables using SparsePauliOp."""
-        obs = []
-        for i in range(self.n_qubits):
-            for pauli in ['X', 'Y', 'Z']:
-                pauli_str = "I" * i + pauli + "I" * (self.n_qubits - i - 1)
-                obs.append(SparsePauliOp(pauli_str))
-        return obs
-    
-    def _build_ising_circuit(self, features: np.ndarray) -> QuantumCircuit:
-        """Build Ising Hamiltonian circuit."""
-        qc = QuantumCircuit(self.n_qubits)
-        
-        # Initial encoding
-        for i in range(self.n_qubits):
-            qc.ry(np.pi * np.tanh(features[i]), i)
-        
-        # Ising layers
-        for _ in range(self.n_layers):
-            # ZZ couplings
-            for i in range(self.n_qubits - 1):
-                qc.czz(i, i + 1)
-            
-            # Transverse field
-            for i in range(self.n_qubits):
-                qc.rx(self.h_field, i)
-        
-        return qc
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass."""
-        batch_size = x.shape[0]
-        results = []
-        
-        for i in range(batch_size):
-            feat = x[i].detach().cpu().numpy()
-            qc = self._build_ising_circuit(feat)
-            
-            job = self.estimator.run([(qc, self.observables)])
-            exp_vals = job.result()[0].data.evs
-            results.append(exp_vals)
-        
-        return torch.tensor(results, device=x.device)
-
-
 def create_quantum_reservoir(
-    n_qubits: int = 6,
-    backend: str = "cpu",
+    n_qubits: int = 8,
+    seed: int = 42,
     **kwargs
-) -> QuantumReservoirQiskit:
-    """Factory function to create quantum reservoir.
-    
-    Args:
-        n_qubits: Number of qubits
-        backend: "cpu" or "gpu"
-        **kwargs: Additional arguments
-    
-    Returns:
-        QuantumReservoirQiskit instance
-    """
-    use_gpu = (backend == "gpu")
-    return QuantumReservoirQiskit(
+) -> QuantumReservoir:
+    """Factory function to create quantum reservoir."""
+    return QuantumReservoir(
         n_qubits=n_qubits,
-        use_gpu=use_gpu,
+        seed=seed,
         **kwargs
     )

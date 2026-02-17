@@ -8,215 +8,166 @@ emulates multiple temporal scales of photonic delay loops using parallel
 
 import torch
 import torch.nn as nn
+import numpy as np
 from typing import List, Optional
-import math
 
 
 class PhotonicDelayBank(nn.Module):
-    """Single Photonic Delay Bank using 1D Convolution.
+    """Single Conv1D bank emulating one photonic delay loop.
     
-    Emulates a photonic delay loop with a specific temporal kernel size.
     Uses causal padding to ensure only past information is used.
     """
     
     def __init__(
         self,
-        input_dim: int,
-        d_model: int,
+        in_channels: int,
+        out_channels: int,
         kernel_size: int,
-        kernel_init: str = "random",
+        activation: str = "tanh",
+        frozen: bool = False,
     ):
         super().__init__()
-        self.input_dim = input_dim
-        self.d_model = d_model
-        self.kernel_size = kernel_size
         
-        # 1D Convolution with causal padding
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.activation = activation
+        self.frozen = frozen
+        
+        # Conv1D with causal padding
+        # padding = kernel_size - 1 ensures output is same length as input
         self.conv = nn.Conv1d(
-            in_channels=input_dim,
-            out_channels=d_model,
+            in_channels=in_channels,
+            out_channels=out_channels,
             kernel_size=kernel_size,
-            padding=0,  # No padding - causal
+            padding=kernel_size - 1,  # Causal padding
             bias=False,
         )
         
-        # Initialize kernel
-        self._init_kernel(kernel_init)
-    
-    def _init_kernel(self, init_type: str):
-        """Initialize convolution kernels."""
-        if init_type == "random":
-            nn.init.xavier_normal_(self.conv.weight)
-        elif init_type == "chirp":
-            # Initialize with chirp (linear frequency sweep)
-            for i in range(self.conv.in_channels):
-                for j in range(self.conv.out_channels):
-                    t = torch.arange(self.kernel_size)
-                    freq = 0.1 + 0.4 * t / self.kernel_size
-                    phase = 2 * math.pi * freq * t
-                    kernel = torch.cos(phase) * torch.exp(-t / (self.kernel_size / 3))
-                    self.conv.weight[j, i, :] = kernel
-        elif init_type == "gabor":
-            # Initialize with Gabor (Gaussian modulated sinusoid)
-            for i in range(self.conv.in_channels):
-                for j in range(self.conv.out_channels):
-                    t = torch.arange(self.kernel_size) - self.kernel_size / 2
-                    sigma = self.kernel_size / 6
-                    freq = 0.2 + 0.1 * j
-                    gaussian = torch.exp(-t**2 / (2 * sigma**2))
-                    gabor = gaussian * torch.cos(2 * math.pi * freq * t)
-                    self.conv.weight[j, i, :] = gabor
+        # Activation function
+        if activation == "tanh":
+            self.activation_fn = nn.Tanh()
+        elif activation == "relu":
+            self.activation_fn = nn.ReLU()
+        elif activation == "identity":
+            self.activation_fn = nn.Identity()
         else:
-            nn.init.xavier_normal_(self.conv.weight)
+            raise ValueError(f"Unknown activation: {activation}")
+        
+        # Freeze kernels if specified
+        if frozen:
+            for param in self.conv.parameters():
+                param.requires_grad = False
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x: Input tensor of shape (batch, seq_len, input_dim)
+            x: Input tensor of shape (batch, channels, seq_len)
         Returns:
-            Output tensor of shape (batch, seq_len - kernel_size + 1, d_model)
+            Output tensor of shape (batch, out_channels, seq_len)
         """
-        # Transpose for Conv1d: (batch, channels, seq)
-        x = x.transpose(1, 2)
-        
-        # Apply convolution (causal - output shorter than input)
+        # Apply convolution with causal padding
         out = self.conv(x)
         
-        # Transpose back: (batch, seq, channels)
-        out = out.transpose(1, 2)
+        # Trim output to match input length (causal property)
+        out = out[:, :, :x.shape[2]]
+        
+        # Apply activation
+        out = self.activation_fn(out)
         
         return out
+    
+    @property
+    def n_params(self) -> int:
+        """Number of trainable parameters."""
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
 class PhotonicDelayLoopEmulator(nn.Module):
-    """Multiple Photonic Delay Banks with different temporal scales.
+    """Multi-bank PDEL: K parallel Conv1D banks at different temporal scales.
     
-    This module emulates photonic delay loops at multiple temporal scales
-    (sub-hourly, hourly, daily, weekly) using parallel Conv1D banks.
+    Each bank emulates a photonic delay loop at a different temporal scale
+    (e.g., 15min, 1h, 6h, 24h, 1 week).
     """
     
     def __init__(
         self,
-        input_dim: int,
-        d_model: int,
-        kernel_sizes: List[int],
-        kernel_init: str = "random",
-        use_batch_norm: bool = False,
+        in_channels: int,
+        n_banks: int = 5,
+        kernel_sizes: List[int] = None,
+        features_per_bank: int = 16,
+        activation: str = "tanh",
+        frozen_kernels: bool = False,
         dropout: float = 0.0,
     ):
         super().__init__()
         
-        self.input_dim = input_dim
-        self.d_model = d_model
-        self.kernel_sizes = kernel_sizes
-        self.n_banks = len(kernel_sizes)
+        self.in_channels = in_channels
+        self.n_banks = n_banks
+        self.kernel_sizes = kernel_sizes or [4, 24, 96, 168, 672]
+        self.features_per_bank = features_per_bank
+        self.activation = activation
+        self.frozen_kernels = frozen_kernels
+        self.dropout = dropout
         
         # Create parallel delay banks
         self.banks = nn.ModuleList([
             PhotonicDelayBank(
-                input_dim=input_dim,
-                d_model=d_model,
+                in_channels=in_channels,
+                out_channels=features_per_bank,
                 kernel_size=ks,
-                kernel_init=kernel_init,
+                activation=activation,
+                frozen=frozen_kernels,
             )
-            for ks in kernel_sizes
-        ])
-        
-        # Optional batch normalization
-        self.batch_norms = nn.ModuleList([
-            nn.BatchNorm1d(d_model) if use_batch_norm else nn.Identity()
-            for _ in kernel_sizes
+            for ks in self.kernel_sizes
         ])
         
         # Optional dropout
-        self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
+        self.dropout_layer = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
         
-        # Output dimension
-        self.output_dim = d_model * len(kernel_sizes)
+        # Freeze banks if specified
+        if frozen_kernels:
+            for bank in self.banks:
+                for param in bank.parameters():
+                    param.requires_grad = False
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x: Input tensor of shape (batch, seq_len, input_dim)
+            x: Input tensor of shape (batch, channels, seq_len)
         Returns:
-            Concatenated output of shape (batch, seq_len, output_dim)
+            Output tensor of shape (batch, K*D_phot, seq_len)
         """
         outputs = []
         
-        for bank, bn in zip(self.banks, self.batch_norms):
-            out = bank(x)
-            
-            # Apply batch norm and dropout
-            out = out.transpose(1, 2)  # (batch, d_model, seq)
-            out = bn(out)
-            out = out.transpose(1, 2)  # (batch, seq, d_model)
-            out = self.dropout(out)
-            
+        for bank in self.banks:
+            out = bank(x)  # (batch, features_per_bank, seq_len)
             outputs.append(out)
         
-        # Handle different sequence lengths due to causal convolution
-        min_len = min(o.shape[1] for o in outputs)
-        outputs = [o[:, :min_len, :] for o in outputs]
+        # Concatenate along channel dimension
+        result = torch.cat(outputs, dim=1)  # (batch, K*D_phot, seq_len)
         
-        # Concatenate along feature dimension
-        result = torch.cat(outputs, dim=-1)
+        # Apply dropout
+        result = self.dropout_layer(result)
         
         return result
     
-    def get_output_dim(self) -> int:
-        """Return the output feature dimension."""
-        return self.output_dim
-
-
-class TemporalEncoder(nn.Module):
-    """Full Temporal Encoder with optional pre-training capability.
+    @property
+    def output_dim(self) -> int:
+        """Total output feature dimension."""
+        return self.n_banks * self.features_per_bank
     
-    Combines Photonic Delay-Loop Emulation with optional temporal
-    feature encoding for enhanced representation learning.
-    """
+    @property
+    def n_trainable_params(self) -> int:
+        """Number of trainable parameters."""
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
     
-    def __init__(
-        self,
-        input_dim: int,
-        d_model: int,
-        kernel_sizes: List[int],
-        kernel_init: str = "random",
-        use_batch_norm: bool = False,
-        dropout: float = 0.0,
-        learn_kernels: bool = False,
-    ):
-        super().__init__()
-        
-        self.learn_kernels = learn_kernels
-        
-        # Main photonic delay loop emulator
-        self.pdel = PhotonicDelayLoopEmulator(
-            input_dim=input_dim,
-            d_model=d_model,
-            kernel_sizes=kernel_sizes,
-            kernel_init=kernel_init,
-            use_batch_norm=use_batch_norm,
-            dropout=dropout,
-        )
-        
-        # Optional projection layer
-        self.projection = nn.Linear(
-            self.pdel.output_dim,
-            d_model * len(kernel_sizes)
-        ) if learn_kernels else nn.Identity()
-        
-        self.output_dim = d_model * len(kernel_sizes)
+    def freeze(self):
+        """Freeze all bank parameters."""
+        for param in self.parameters():
+            param.requires_grad = False
     
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            x: Input tensor of shape (batch, seq_len, input_dim)
-        Returns:
-            Encoded features of shape (batch, seq_len, output_dim)
-        """
-        features = self.pdel(x)
-        
-        if self.learn_kernels:
-            features = self.projection(features)
-        
-        return features
+    def unfreeze(self):
+        """Unfreeze all bank parameters."""
+        for param in self.parameters():
+            param.requires_grad = True

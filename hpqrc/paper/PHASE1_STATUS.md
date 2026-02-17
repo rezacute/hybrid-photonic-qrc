@@ -1,54 +1,32 @@
 # Phase 1: Baseline Experiments
 
-## Status
+## Results (3 seeds, 3 horizons)
 
-### Completed
-- [x] 1.1 Data pipeline: ACN-Data (script created)
-- [x] 1.2 Synthetic dataset (verified FFT)
-- [x] 1.4 ExpandingWindowSplitter (implemented)
-- [x] 1.5 Metrics, statistical tests, parameter counter
-- [x] 1.6 Preprocessing (scalers, time features)
-- [x] 1.7 Memory capacity benchmarks
-- [x] 1.9 Pure QRC baseline
-- [x] 1.10 ESN baseline
+| Model | H=1 RMSE | H=6 RMSE | H=24 RMSE |
+|-------|----------|-----------|------------|
+| **ESN** (64 nodes) | 0.31 ± 0.06 | 0.35 ± 0.05 | 0.57 ± 0.03 |
+| **PureQRC** (4 qubits) | 0.37 ± 0.04 | 0.44 ± 0.04 | 0.75 ± 0.03 |
 
-### In Progress
-- [ ] 1.11 LSTM baseline
-- [ ] 1.12 Transformer baseline
-- [ ] 1.13-1.16 Baselines with multiple seeds
+## Key Findings
 
-### GPU Status ⚠️
-- Build completed but GPU not available
-- Working on CPU (~2ms for 10-qubit circuits)
-- Need CUDA runtime for GPU support
+1. **ESN outperforms PureQRC** on all horizons
+2. **Error increases with horizon** - expected for autoregressive tasks
+3. **PureQRC needs more qubits** to match ESN (4 qubits is minimal)
+4. **These are the targets HPQRC must beat**
 
-## Running Baselines
+## Analysis
 
-```bash
-# Generate synthetic data
-python scripts/generate_synthetic.py
-
-# Run all baselines
-python scripts/run_phase1_baselines.py
-
-# Run specific model
-python -c "
-from src.models.qrc import PureQRC
-model = PureQRC(n_qubits=8)
-# ... train and evaluate
-"
-```
-
-## Expected Results (to beat)
-
-| Model | STM Capacity | RMSE (24h) |
-|-------|-------------|------------|
-| Pure QRC (8-qubit) | 6-8 | TBD |
-| ESN (256 nodes) | 7-10 | TBD |
-| LSTM | - | TBD |
-| Transformer | - | TBD |
+- Horizon 1: ESN is 16% better than PureQRC
+- Horizon 6: ESN is 22% better than PureQRC  
+- Horizon 24: ESN is 25% better than PureQRC
 
 ## Next Steps
-1. Run full baseline experiments with 10 seeds
-2. Compile baseline report
-3. Begin HPQRC implementation
+
+- [ ] Run with more seeds (10)
+- [ ] Test with larger QRC (8 qubits)
+- [ ] Implement HPQRC
+- [ ] Compare HPQRC vs baselines
+
+## Files
+
+- `outputs/baselines/baseline_results_20260217_044530.json` - Raw results

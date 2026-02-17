@@ -182,9 +182,8 @@ def legendre_polynomial(x: np.ndarray, degree: int) -> np.ndarray:
     else:
         # General recurrence
         P0 = np.ones_like(x)
-        P1 = x        for n.copy()
-        
- in range(2, degree + 1):
+        P1 = x.copy()
+        for n in range(2, degree + 1):
             Pn = ((2 * n - 1) * x * P1 - (n - 1) * P0) / n
             P0, P1 = P1, Pn
         

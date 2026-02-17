@@ -1,0 +1,19 @@
+name: pecan_street
+description: Pecan Street EV charging dataset
+
+source: pecan_street
+resolution: 15min
+lookback: 672
+cv_type: expanding_window
+n_folds: 5
+test_size: 0.2
+
+preprocessing:
+  normalize: true
+  fill_missing: zero
+  resample: true
+
+features:
+  use_time_features: true
+  use_ev_features: true
+  use_solar_features: true

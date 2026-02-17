@@ -1,0 +1,11 @@
+name: ablation_kernels
+description: Ablation A4 - Frozen random vs Learned kernels
+
+models:
+  - hpqrc
+  - hpqrc_learnable_kernels
+
+data: acn_caltech
+horizons: [1, 6, 24]
+n_seeds: 5
+n_folds: 3

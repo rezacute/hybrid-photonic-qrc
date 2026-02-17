@@ -1,0 +1,21 @@
+name: acn_caltech
+description: ACN-Caltech EV charging dataset
+
+source: acn_caltech
+resolution: 15min
+lookback: 672  # 1 week
+cv_type: expanding_window
+n_folds: 5
+test_size: 0.2
+gap: 24  # 1 day gap between train/test
+
+preprocessing:
+  normalize: true
+  fill_missing: forward
+  resample: true
+  target_col: energy
+
+features:
+  use_time_features: true
+  use_lag_features: true
+  use_rolling_features: false

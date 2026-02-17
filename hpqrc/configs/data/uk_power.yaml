@@ -1,0 +1,17 @@
+name: uk_power
+description: UK Power Networks EV charging dataset
+
+source: uk_power
+resolution: 30min
+lookback: 336  # 1 week
+cv_type: expanding_window
+n_folds: 5
+test_size: 0.2
+
+preprocessing:
+  normalize: true
+  fill_missing: interpolate
+
+features:
+  use_time_features: true
+  use_ev_uptake: true

@@ -1,0 +1,23 @@
+name: qrc_baseline
+description: Pure QRC baseline - no photonic layer (ablation A1)
+
+photonic:
+  enabled: false
+
+quantum:
+  enabled: true
+  n_qubits: 6
+  n_layers: 1
+  coupling_strength: 1.0
+  transverse_field: 0.5
+  backend: cuquantum
+  encoding: angle
+  observables: [X, Y, Z]
+
+readout:
+  type: ridge
+  alpha: 1.0
+  use_trainable: false
+
+training:
+  style: rc

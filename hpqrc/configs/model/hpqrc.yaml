@@ -1,0 +1,29 @@
+name: hpqrc
+description: Full HPQRC model with photonic delay loops + quantum reservoir + linear readout
+
+photonic:
+  enabled: true
+  n_banks: 5
+  kernel_sizes: [4, 24, 96, 168, 672]
+  d_model: 32
+  kernel_init: random
+  use_batch_norm: false
+  dropout: 0.0
+
+quantum:
+  enabled: true
+  n_qubits: 6
+  n_layers: 1
+  coupling_strength: 1.0
+  transverse_field: 0.5
+  backend: cuquantum
+  encoding: angle
+  observables: [X, Y, Z]
+
+readout:
+  type: ridge
+  alpha: 1.0
+  use_trainable: false
+
+training:
+  style: rc  # "rc" = fit only readout, "dl" = backprop all

@@ -1,0 +1,25 @@
+name: synthetic
+description: Synthetic EV charging dataset with planted patterns
+
+source: synthetic
+resolution: 15min
+lookback: 672
+n_samples: 175200  # 6 months
+seed: 42
+
+frequencies:
+  - period: 24      # daily
+    amplitude: 1.0
+  - period: 168     # weekly
+    amplitude: 0.5
+  - period: 8760    # yearly
+    amplitude: 0.3
+
+noise:
+  type: ar1
+  phi: 0.8
+  sigma: 0.1
+
+spikes:
+  probability: 0.01
+  amplitude: 2.0

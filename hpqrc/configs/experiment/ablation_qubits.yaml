@@ -1,0 +1,9 @@
+name: ablation_qubits
+description: Ablation A5 - Sweep number of qubits
+
+n_qubits: [4, 6, 8, 10, 12]
+
+data: acn_caltech
+horizons: [1, 6, 24]
+n_seeds: 5
+n_folds: 3

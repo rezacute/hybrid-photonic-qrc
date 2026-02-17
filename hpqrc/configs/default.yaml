@@ -1,0 +1,39 @@
+defaults:
+  - model: hpqrc
+  - data: acn_caltech
+  - experiment: main_comparison
+  - hardware: t4
+  - _self_
+
+seed: 42
+n_seeds: 10
+n_folds: 5
+epochs: 100
+batch_size: 256
+learning_rate: 0.001
+
+horizons:
+  - 1  # 1 hour
+  - 6  # 6 hours
+  - 24 # 24 hours
+  - 72 # 3 days
+  - 168 # 1 week
+
+logging:
+  wandb: true
+  log_every: 10
+  save_every: 100
+
+paths:
+  data_root: ./data
+  output_root: ./outputs
+  model_save_dir: ${paths.output_root}/models
+  results_save_dir: ${paths.output_root}/results
+  figures_save_dir: ${paths.output_root}/figures
+
+hydra:
+  run:
+    dir: ./outputs/logs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: ./outputs/logs/${now:%Y-%m-%d}
+    subdir: ${now:%H-%M-%S}

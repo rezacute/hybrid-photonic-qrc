@@ -1,0 +1,7 @@
+name: t4
+device: cuda
+cuda_visible_devices: "0"
+mixed_precision: true
+batch_size: 256
+num_workers: 4
+cuquantum_enabled: true

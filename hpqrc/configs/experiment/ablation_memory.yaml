@@ -1,0 +1,14 @@
+name: ablation_memory
+description: Ablation A1 - HPQRC vs QRC baseline (memory capacity)
+
+models:
+  - hpqrc
+  - qrc_baseline
+
+data: acn_caltech
+horizons: [1, 6, 24, 72, 168]
+
+n_seeds: 10
+n_folds: 5
+
+save_results: true

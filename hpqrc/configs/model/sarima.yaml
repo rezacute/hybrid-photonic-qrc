@@ -1,0 +1,14 @@
+name: sarima
+description: SARIMA statistical baseline
+
+params:
+  p: 1
+  d: 1
+  q: 1
+  P: 1
+  D: 1
+  Q: 1
+  m: 24  # hourly seasonality
+
+training:
+  style: statistical

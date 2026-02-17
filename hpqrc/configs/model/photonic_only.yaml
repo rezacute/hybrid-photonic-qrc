@@ -1,0 +1,22 @@
+name: photonic_only
+description: Photonic RC baseline - no quantum layer (ablation A2)
+
+photonic:
+  enabled: true
+  n_banks: 5
+  kernel_sizes: [4, 24, 96, 168, 672]
+  d_model: 32
+  kernel_init: random
+  use_batch_norm: false
+  dropout: 0.0
+
+quantum:
+  enabled: false
+
+readout:
+  type: ridge
+  alpha: 1.0
+  use_trainable: false
+
+training:
+  style: rc

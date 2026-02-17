@@ -1,0 +1,13 @@
+name: memory_capacity
+description: Memory capacity benchmark
+
+models:
+  - hpqrc
+  - qrc_baseline
+  - photonic_only
+  - esn
+
+benchmarks:
+  - stm  # short-term memory
+  - ipc  # information processing capacity
+  - nmc  # nonlinear memory capacity

@@ -1,0 +1,16 @@
+name: lstm
+description: 2-layer LSTM baseline
+
+architecture:
+  hidden_size: 64
+  num_layers: 2
+  dropout: 0.1
+  bidirectional: false
+
+training:
+  style: dl
+  epochs: 100
+  learning_rate: 0.001
+  optimizer: adam
+  weight_decay: 0.0001
+  early_stopping_patience: 10

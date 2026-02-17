@@ -1,0 +1,12 @@
+name: ablation_quantum
+description: Ablation A2 - HPQRC vs Photonic-only
+
+models:
+  - hpqrc
+  - photonic_only
+
+data: acn_caltech
+horizons: [1, 6, 24, 72, 168]
+n_seeds: 10
+n_folds: 5
+save_results: true

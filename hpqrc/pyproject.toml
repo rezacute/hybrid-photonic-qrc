@@ -1,0 +1,149 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hpqrc"
+version = "0.1.0"
+description = "Hybrid Photonic-Quantum Reservoir Computing for EV Charging Demand Forecasting"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "HPQRC Authors", email = "authors@example.com"}
+]
+keywords = ["quantum", "reservoir-computing", "photonic", "ev-charging", "forecasting", "qiskit"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
+dependencies = [
+    # Core - PyTorch
+    "torch>=2.1.0",
+    
+    # Quantum - Qiskit 2.x (NOT 1.x!)
+    "qiskit>=2.1.0",
+    "qiskit-aer>=0.17.0",
+    "qiskit-algorithms>=0.3.0",
+    
+    # GPU acceleration (standalone, NOT qiskit-aer-gpu!)
+    # For GPU: build qiskit-aer from source with CUDA support
+    # Or use: pip install cuquantum
+    
+    # Core - Numerical
+    "numpy>=1.26.0",
+    "pandas>=2.1.0",
+    "polars>=0.20.0",
+    "scipy>=1.12.0",
+    
+    # ML
+    "scikit-learn>=1.4.0",
+    
+    # Experiment tracking
+    "hydra-core>=1.3.0",
+    "hydra-joblib-launcher>=1.3.0",
+    "omegaconf>=2.3.0",
+    "wandb>=0.16.0",
+    
+    # Statistics
+    "pingouin>=0.5.4",
+    "statsmodels>=0.14.0",
+    
+    # Visualization
+    "matplotlib>=3.8.0",
+    "seaborn>=0.13.0",
+    "plotly>=5.18.0",
+    
+    # Time series
+    "statsmodels>=0.14.0",
+    
+    # Utils
+    "tqdm>=4.66.0",
+    "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.11.0",
+    "ruff>=0.2.0",
+    "mypy>=1.8.0",
+    "pre-commit>=3.6.0",
+    "black>=23.7.0",
+    "jupyterlab>=4.0.0",
+    "ipykernel>=6.28.0",
+    "ipywidgets>=8.1.0",
+    "notebook>=7.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/rezacute/hybrid-photonic-qrc"
+Documentation = "https://hpqrc.readthedocs.io"
+Repository = "https://github.com/rezacute/hybrid-photonic-qrc"
+Issues = "https://github.com/rezacute/hybrid-photonic-qrc/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["hpqrc*"]
+
+[tool.setuptools.package-data]
+hpqrc = ["py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = false
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_configs = true
+disallow_untyped_decorators = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --strict-markers --tb=short"
+markers = [
+    "slow: marks tests as slow",
+    "gpu: marks tests requiring GPU",
+    "integration: marks integration tests",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*", "scripts/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

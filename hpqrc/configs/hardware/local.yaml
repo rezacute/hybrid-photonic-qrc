@@ -1,0 +1,5 @@
+name: local
+device: cpu
+batch_size: 32
+num_workers: 2
+cuquantum_enabled: false

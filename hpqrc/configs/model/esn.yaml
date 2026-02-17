@@ -1,0 +1,16 @@
+name: esn
+description: Echo State Network baseline
+
+reservoir:
+  n_nodes: 256
+  spectral_radius: 0.95
+  input_scaling: 0.1
+  leaking_rate: 1.0
+  sparsity: 0.1
+
+readout:
+  type: ridge
+  alpha: 1.0
+
+training:
+  style: rc

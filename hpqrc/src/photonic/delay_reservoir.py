@@ -82,6 +82,8 @@ class PhotonicDelayReservoir(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Process input through delay-line reservoir.
         
+        Optimized version with pre-computed input drives.
+        
         Args:
             x: Input tensor (batch, seq_len, input_dim)
         
@@ -89,6 +91,10 @@ class PhotonicDelayReservoir(nn.Module):
             States tensor (batch, seq_len, reservoir_dim)
         """
         batch, seq_len, _ = x.shape
+        
+        # Pre-compute all input drives at once
+        # drive[t] = x[t] @ W_in.T
+        drive = torch.matmul(x, self.W_in.T)  # (batch, seq_len, reservoir_dim)
         
         # History buffer
         h_history = torch.zeros(
@@ -101,22 +107,18 @@ class PhotonicDelayReservoir(nn.Module):
         states = []
         
         for t in range(seq_len):
-            # Input drive
-            drive = torch.matmul(x[:, t, :], self.W_in.T)
-            
             # Get delayed states: (n_taps, batch, reservoir)
             delayed_states = torch.stack([
                 h_history[:, self.max_delay + t - tau, :]
                 for tau in self.delay_taps
             ])
             
-            # Batched matmul: (n_taps, batch, reservoir) @ (n_taps, reservoir, reservoir) -> (n_taps, batch, reservoir)
-            # Then sum over taps: (batch, reservoir)
+            # Batched matmul
             feedback = torch.einsum('tbr,trR->bR', delayed_states, self.W_fb)
             
             # Leaky integration
             h_new = (1 - self.leak_rate) * h + self.leak_rate * torch.tanh(
-                drive + feedback + self.bias
+                drive[:, t, :] + feedback + self.bias
             )
             
             h_history[:, self.max_delay + t, :] = h_new

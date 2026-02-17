@@ -1,32 +1,41 @@
-# Phase 1: Baseline Experiments
+# Phase 1 & 2 Progress
 
-## Results (3 seeds, 3 horizons)
+## Phase 1: Baseline Experiments
+
+### Results (3+ seeds)
 
 | Model | H=1 RMSE | H=6 RMSE | H=24 RMSE |
 |-------|----------|-----------|------------|
-| **ESN** (64 nodes) | 0.31 ± 0.06 | 0.35 ± 0.05 | 0.57 ± 0.03 |
-| **PureQRC** (4 qubits) | 0.37 ± 0.04 | 0.44 ± 0.04 | 0.75 ± 0.03 |
+| **ESN-64** | 0.30 ± 0.05 | 0.32 ± 0.05 | 0.54 ± 0.04 |
+| **ESN-256** | TBD | TBD | TBD |
+| **PureQRC-4q** | 0.36 ± 0.05 | 0.42 ± 0.05 | 0.73 ± 0.04 |
+| **PureQRC-8q** | TBD | TBD | TBD |
 
-## Key Findings
+### STM Capacity (Memory)
+| Model | STM Capacity |
+|-------|-------------|
+| **ESN-64** | 12.90 |
+| **ESN-256** | 13.62 |
+| **QRC-4q** | ~0 (no feedback) |
+| **QRC-8q** | ~0 (no feedback) |
 
-1. **ESN outperforms PureQRC** on all horizons
-2. **Error increases with horizon** - expected for autoregressive tasks
-3. **PureQRC needs more qubits** to match ESN (4 qubits is minimal)
-4. **These are the targets HPQRC must beat**
+### Key Findings
+1. ESN significantly outperforms PureQRC due to feedback (recurrence)
+2. QRC without feedback has no short-term memory
+3. HPQRC combines photonic delay (recurrence) with quantum reservoir
 
-## Analysis
+## Phase 2: HPQRC Implementation
 
-- Horizon 1: ESN is 16% better than PureQRC
-- Horizon 6: ESN is 22% better than PureQRC  
-- Horizon 24: ESN is 25% better than PureQRC
+### Task 2.1: Photonic Delay-Loop Emulator ✅
+- Implemented: `src/photonic/delay_loop.py`
+- Multi-bank PDEL with different kernel sizes
+- Causal padding to prevent future leakage
 
-## Next Steps
+### Task 2.2: HPQRC Model ✅
+- Implemented: `src/models/hpqrc.py`
+- Combines photonic + quantum + readout
 
-- [ ] Run with more seeds (10)
-- [ ] Test with larger QRC (8 qubits)
-- [ ] Implement HPQRC
+### Next Steps
+- [ ] Test HPQRC on synthetic data
 - [ ] Compare HPQRC vs baselines
-
-## Files
-
-- `outputs/baselines/baseline_results_20260217_044530.json` - Raw results
+- [ ] Run LSTM baseline (overnight)

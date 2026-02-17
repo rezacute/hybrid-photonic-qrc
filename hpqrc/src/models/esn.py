@@ -66,6 +66,11 @@ class EchoStateNetwork:
         # Readout
         from ..readout.ridge import RidgeReadout
         self.readout = RidgeReadout(alpha=ridge_alpha)
+        
+        # Multi-horizon readouts
+        self.readouts: dict = {}
+        self._horizon = 1
+        
         self._is_fitted = False
 
     def _build_reservoir_matrix(self) -> np.ndarray:
@@ -121,7 +126,9 @@ class EchoStateNetwork:
         
         Args:
             X: Input of shape (n_samples, seq_len, input_dim)
-            y: Targets of shape (n_samples,) or (n_samples, n_targets)
+            y: Targets of shape:
+                - (n_samples,) for horizon=1
+                - (n_samples, horizon) for horizon>1
         
         Returns:
             self
@@ -134,8 +141,30 @@ class EchoStateNetwork:
 
         # Use final state for prediction
         X_states = np.array([s[-1] for s in all_states])
-
-        self.readout.fit(X_states, y)
+        
+        # Determine horizon from y shape
+        if y.ndim == 2:
+            horizon = y.shape[1]
+        else:
+            horizon = 1
+            y = y.reshape(-1, 1)
+        
+        self._horizon = horizon
+        
+        # Import for multi-horizon
+        from ..readout.ridge import RidgeReadout
+        
+        if horizon == 1:
+            # Single output
+            self.readout.fit(X_states, y.flatten())
+        else:
+            # Multi-horizon - fit separate readout per horizon
+            self.readouts = {}
+            for h in range(horizon):
+                readout = RidgeReadout(alpha=self.ridge_alpha)
+                readout.fit(X_states, y[:, h])
+                self.readouts[h] = readout
+        
         self._is_fitted = True
         return self
 
@@ -146,7 +175,7 @@ class EchoStateNetwork:
             X: Input of shape (n_samples, seq_len, input_dim)
         
         Returns:
-            Predictions
+            Predictions of shape (n_samples,) or (n_samples, horizon)
         """
         if not self._is_fitted:
             raise RuntimeError("Model not fitted")
@@ -159,7 +188,13 @@ class EchoStateNetwork:
 
         X_states = np.array(all_states)
 
-        return self.readout.predict(X_states)
+        if self._horizon == 1:
+            return self.readout.predict(X_states).flatten()
+        else:
+            predictions = np.zeros((len(X_states), self._horizon))
+            for h in range(self._horizon):
+                predictions[:, h] = self.readouts[h].predict(X_states).flatten()
+            return predictions
 
     @property
     def n_params(self) -> int:

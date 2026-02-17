@@ -6,7 +6,7 @@ QRC without photonic layer - baseline for comparison.
 
 import numpy as np
 import torch
-from typing import Optional
+from typing import Optional, Dict
 
 from ..quantum.reservoir import QuantumReservoir
 from ..readout.ridge import RidgeReadout
@@ -17,6 +17,8 @@ class PureQRC:
     
     Uses quantum reservoir for temporal processing,
     with Ridge regression readout.
+    
+    Supports multi-horizon prediction via separate readouts per horizon.
     """
     
     def __init__(
@@ -45,6 +47,7 @@ class PureQRC:
         self.n_qubits = n_qubits
         self.device = device
         self.seed = seed
+        self.ridge_alpha = ridge_alpha
         
         # Set seeds
         np.random.seed(seed)
@@ -60,10 +63,14 @@ class PureQRC:
             seed=seed,
         )
         
-        # Readout
+        # Single readout (for horizon=1)
         self.readout = RidgeReadout(alpha=ridge_alpha)
         
+        # Multi-horizon readouts (for horizon > 1)
+        self.readouts: Dict[int, RidgeReadout] = {}
+        
         self._is_fitted = False
+        self._horizon = 1
     
     def extract_features(self, x: np.ndarray) -> np.ndarray:
         """Extract quantum features from input.
@@ -72,7 +79,7 @@ class PureQRC:
             x: Input of shape (batch, seq_len) or (batch, n_qubits)
         
         Returns:
-            Feature array
+            Feature array of shape (batch, feature_dim)
         """
         # Ensure correct shape
         if x.ndim == 2:
@@ -93,14 +100,33 @@ class PureQRC:
         """Fit the model.
         
         Args:
-            X_train: Training input
-            y_train: Training targets
+            X_train: Training input of shape (n_samples, seq_len)
+            y_train: Training targets of shape:
+                - (n_samples,) for horizon=1
+                - (n_samples, horizon) for horizon>1
         """
         # Extract features
         X_feat = self.extract_features(X_train)
         
-        # Fit readout
-        self.readout.fit(X_feat, y_train)
+        # Determine horizon from y_train shape
+        if y_train.ndim == 2:
+            horizon = y_train.shape[1]
+        else:
+            horizon = 1
+            y_train = y_train.reshape(-1, 1)
+        
+        self._horizon = horizon
+        
+        if horizon == 1:
+            # Single output - use main readout
+            self.readout.fit(X_feat, y_train.flatten())
+        else:
+            # Multi-horizon - fit separate readout per horizon
+            self.readouts = {}
+            for h in range(horizon):
+                readout = RidgeReadout(alpha=self.ridge_alpha)
+                readout.fit(X_feat, y_train[:, h])
+                self.readouts[h] = readout
         
         self._is_fitted = True
         return self
@@ -109,10 +135,12 @@ class PureQRC:
         """Predict on new data.
         
         Args:
-            X_test: Test input
+            X_test: Test input of shape (n_samples, seq_len)
         
         Returns:
-            Predictions
+            Predictions of shape:
+                - (n_samples,) for horizon=1
+                - (n_samples, horizon) for horizon>1
         """
         if not self._is_fitted:
             raise RuntimeError("Model not fitted")
@@ -120,13 +148,23 @@ class PureQRC:
         # Extract features
         X_feat = self.extract_features(X_test)
         
-        # Predict
-        return self.readout.predict(X_feat)
+        if self._horizon == 1:
+            # Single output
+            return self.readout.predict(X_feat).flatten()
+        else:
+            # Multi-horizon
+            predictions = np.zeros((len(X_test), self._horizon))
+            for h in range(self._horizon):
+                predictions[:, h] = self.readouts[h].predict(X_feat).flatten()
+            return predictions
     
     @property
     def n_params(self) -> int:
         """Number of trainable parameters."""
-        return self.readout.n_params
+        if self._horizon == 1:
+            return self.readout.n_params
+        else:
+            return sum(r.n_params for r in self.readouts.values())
 
 
 class QRCWithReadout:

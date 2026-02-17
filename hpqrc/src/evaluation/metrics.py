@@ -4,8 +4,8 @@ Evaluation Metrics for Time Series Forecasting
 Standard metrics: MAE, RMSE, MAPE, and utilities.
 """
 
+
 import numpy as np
-from typing import Dict, Optional
 
 
 def mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -79,7 +79,7 @@ def r2_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 def compute_all_metrics(
     y_true: np.ndarray,
     y_pred: np.ndarray,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Compute all standard metrics.
     
     Args:
@@ -92,7 +92,7 @@ def compute_all_metrics(
     # Flatten if needed
     y_true = y_true.flatten()
     y_pred = y_pred.flatten()
-    
+
     return {
         "mae": mae(y_true, y_pred),
         "rmse": rmse(y_true, y_pred),

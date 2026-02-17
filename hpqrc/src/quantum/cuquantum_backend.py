@@ -13,9 +13,8 @@ Qiskit 2.x pattern:
 - Use EstimatorV2 from qiskit_aer.primitives
 """
 
+
 import numpy as np
-import torch
-from typing import List, Optional, Dict, Any
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import SparsePauliOp, Statevector
 from qiskit_aer import AerSimulator
@@ -30,7 +29,7 @@ class CuQuantumBackend:
     
     IMPORTANT: qiskit-aer-gpu is INCOMPATIBLE with Qiskit 2.x
     """
-    
+
     def __init__(
         self,
         n_qubits: int,
@@ -40,18 +39,18 @@ class CuQuantumBackend:
         self.n_qubits = n_qubits
         self.device = device
         self.use_custatevec = use_custatevec
-        
+
         # Try GPU simulation
         self.gpu_available = False
         self.simulator = None
         self.estimator = None
-        
+
         self._init_gpu()
-        
+
         if not self.gpu_available:
             print("WARNING: GPU not available, falling back to CPU")
             self._init_cpu()
-    
+
     def _init_gpu(self):
         """Initialize GPU simulator."""
         try:
@@ -60,7 +59,7 @@ class CuQuantumBackend:
                 method='statevector',
                 device='GPU',
             )
-            
+
             # Try to enable cuStateVec if requested
             if self.use_custatevec:
                 try:
@@ -68,20 +67,20 @@ class CuQuantumBackend:
                     self.simulator.set_option(cuStateVec_enable=True)
                 except Exception as e:
                     print(f"cuStateVec not available: {e}")
-            
+
             # Create estimator (Qiskit 2.x V2)
             self.estimator = EstimatorV2(
                 backend=self.simulator,
                 options={"shots": None}
             )
-            
+
             self.gpu_available = True
             print(f"GPU simulation enabled: {self.simulator.device}")
-            
+
         except Exception as e:
             print(f"GPU initialization failed: {e}")
             self.gpu_available = False
-    
+
     def _init_cpu(self):
         """Initialize CPU simulator as fallback."""
         self.simulator = AerSimulator(method='statevector')
@@ -90,7 +89,7 @@ class CuQuantumBackend:
             options={"shots": None}
         )
         print("Using CPU simulation")
-    
+
     def run_circuit(self, circuit: QuantumCircuit) -> Statevector:
         """Run single circuit and return statevector.
         
@@ -103,8 +102,8 @@ class CuQuantumBackend:
         job = self.simulator.run(circuit)
         result = job.result()
         return result.get_statevector()
-    
-    def run_batch(self, circuits: List[QuantumCircuit]) -> List[Statevector]:
+
+    def run_batch(self, circuits: list[QuantumCircuit]) -> list[Statevector]:
         """Run multiple circuits and return statevectors.
         
         Args:
@@ -118,11 +117,11 @@ class CuQuantumBackend:
             sv = self.run_circuit(circuit)
             results.append(sv)
         return results
-    
+
     def compute_expectations(
         self,
         circuit: QuantumCircuit,
-        observables: List[SparsePauliOp],
+        observables: list[SparsePauliOp],
     ) -> np.ndarray:
         """Compute expectation values via EstimatorV2.
         
@@ -142,17 +141,17 @@ class CuQuantumBackend:
             for obs in observables:
                 exp_vals.append(sv.expectation_value(obs))
             return np.array(exp_vals)
-        
+
         # Use EstimatorV2 (Qiskit 2.x)
         job = self.estimator.run([(circuit, observables)])
         result = job.result()
-        
+
         return result[0].data.evs
-    
+
     def compute_expectations_batch(
         self,
-        circuits: List[QuantumCircuit],
-        observables: List[SparsePauliOp],
+        circuits: list[QuantumCircuit],
+        observables: list[SparsePauliOp],
     ) -> np.ndarray:
         """Batch compute expectation values.
         
@@ -173,23 +172,23 @@ class CuQuantumBackend:
                     exp_vals.append(sv.expectation_value(obs))
                 results.append(exp_vals)
             return np.array(results)
-        
+
         # Batched execution with EstimatorV2 (Qiskit 2.x PUB format)
         pubs = [(qc, observables) for qc in circuits]
         job = self.estimator.run(pubs)
         result = job.result()
-        
+
         outputs = []
         for i in range(len(circuits)):
             outputs.append(result[i].data.evs)
-        
+
         return np.array(outputs)
-    
+
     @property
     def is_gpu(self) -> bool:
         """Check if GPU is available."""
         return self.gpu_available
-    
+
     def __repr__(self) -> str:
         return f"CuQuantumBackend(n_qubits={self.n_qubits}, gpu={self.gpu_available})"
 

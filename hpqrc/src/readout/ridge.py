@@ -4,9 +4,9 @@ Ridge Regression Readout for Reservoir Computing
 Simple sklearn-based Ridge regression wrapper for reservoir readout.
 """
 
+
 import numpy as np
 from sklearn.linear_model import Ridge
-from typing import Optional
 
 
 class RidgeReadout:
@@ -14,7 +14,7 @@ class RidgeReadout:
     
     Simple, fast, and effective for reservoir computing.
     """
-    
+
     def __init__(self, alpha: float = 1.0):
         """
         Args:
@@ -23,7 +23,7 @@ class RidgeReadout:
         self.alpha = alpha
         self.model = Ridge(alpha=alpha, fit_intercept=True)
         self._is_fitted = False
-    
+
     def fit(self, X: np.ndarray, y: np.ndarray) -> "RidgeReadout":
         """Fit the Ridge model.
         
@@ -37,7 +37,7 @@ class RidgeReadout:
         self.model.fit(X, y)
         self._is_fitted = True
         return self
-    
+
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict using fitted model.
         
@@ -50,7 +50,7 @@ class RidgeReadout:
         if not self._is_fitted:
             raise RuntimeError("Model not fitted. Call fit() first.")
         return self.model.predict(X)
-    
+
     @property
     def n_params(self) -> int:
         """Number of parameters (weights + bias)."""
@@ -59,12 +59,12 @@ class RidgeReadout:
         n_features = self.model.coef_.shape[-1]
         n_outputs = self.model.coef_.shape[0] if self.model.coef_.ndim > 1 else 1
         return n_features * n_outputs + n_outputs  # weights + bias
-    
+
     @property
     def coef_(self) -> np.ndarray:
         """Model coefficients."""
         return self.model.coef_
-    
+
     @property
     def intercept_(self) -> np.ndarray:
         """Model intercept."""

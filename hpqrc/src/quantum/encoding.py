@@ -4,10 +4,10 @@ Quantum Encoding Schemes - Qiskit 2.x Compatible
 Angle encoding and amplitude encoding for classical-to-quantum mapping.
 """
 
+
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
-from typing import Optional
 
 
 class AngleEncoder(nn.Module):
@@ -16,17 +16,17 @@ class AngleEncoder(nn.Module):
     Uses RZ gates for encoding. Features are first projected to qubit dimension
     if needed, then mapped to angles.
     """
-    
+
     def __init__(
         self,
         n_qubits: int,
-        input_dim: Optional[int] = None,
+        input_dim: int | None = None,
     ):
         super().__init__()
-        
+
         self.n_qubits = n_qubits
         self.input_dim = input_dim or n_qubits
-        
+
         # Linear projection (stored as numpy array for quantum circuit use)
         if self.input_dim != n_qubits:
             # Learnable projection
@@ -35,7 +35,7 @@ class AngleEncoder(nn.Module):
         else:
             self.projection = None
             self._projection_np = np.eye(n_qubits)
-    
+
     def encode(self, features: np.ndarray) -> np.ndarray:
         """Encode features to angles for RZ gates.
         
@@ -57,7 +57,7 @@ class AngleEncoder(nn.Module):
         else:
             # Batch
             raise NotImplementedError("Use forward() for batches")
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass returning encoded angles.
         
@@ -69,12 +69,12 @@ class AngleEncoder(nn.Module):
         """
         if self.projection is not None:
             x = self.projection(x)
-        
+
         # Angle encoding: θ = π * tanh(x)
         angles = np.pi * torch.tanh(x[:, :self.n_qubits])
-        
+
         return angles
-    
+
     @property
     def projection_matrix(self) -> np.ndarray:
         """Get projection matrix as numpy array."""
@@ -88,21 +88,21 @@ class AmplitudeEncoder(nn.Module):
     
     Requires 2^n normalization for valid quantum state.
     """
-    
+
     def __init__(
         self,
         n_qubits: int,
-        input_dim: Optional[int] = None,
+        input_dim: int | None = None,
     ):
         super().__init__()
-        
+
         self.n_qubits = n_qubits
         self.n_amplitudes = 2 ** n_qubits
         self.input_dim = input_dim or self.n_amplitudes
-        
+
         # Projection layer
         self.projection = nn.Linear(self.input_dim, self.n_amplitudes)
-    
+
     def encode(self, features: np.ndarray) -> np.ndarray:
         """Encode features to normalized state vector.
         
@@ -114,14 +114,14 @@ class AmplitudeEncoder(nn.Module):
         """
         # Project
         amplitudes = self.projection.weight @ features
-        
+
         # Normalize
         norm = np.linalg.norm(amplitudes)
         if norm > 0:
             amplitudes = amplitudes / norm
-        
+
         return amplitudes
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass returning normalized amplitudes.
         
@@ -132,30 +132,30 @@ class AmplitudeEncoder(nn.Module):
             Normalized amplitudes of shape (batch, 2^n_qubits)
         """
         amplitudes = self.projection(x)
-        
+
         # L2 normalize
         norm = torch.norm(amplitudes, dim=-1, keepdim=True)
         amplitudes = amplitudes / (norm + 1e-8)
-        
+
         return amplitudes
 
 
 class BasisEncoder(nn.Module):
     """Basis encoding (one-hot for discrete states)."""
-    
+
     def __init__(self, n_qubits: int, n_states: int):
         super().__init__()
         self.n_qubits = n_qubits
         self.n_states = n_states
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Encode integer states to basis vectors."""
         # x should be integers in [0, n_states)
         batch_size = x.shape[0]
         basis = torch.zeros(batch_size, self.n_qubits, device=x.device)
-        
+
         for i in range(batch_size):
             state = int(x[i].item()) % self.n_states
             basis[i, state % self.n_qubits] = 1.0
-        
+
         return basis

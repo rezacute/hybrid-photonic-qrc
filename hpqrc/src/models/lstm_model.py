@@ -4,9 +4,9 @@ LSTM Forecaster for Time Series
 2-layer LSTM for time series forecasting.
 """
 
+
 import torch
 import torch.nn as nn
-from typing import Optional
 
 
 class LSTMForecaster(nn.Module):
@@ -14,7 +14,7 @@ class LSTMForecaster(nn.Module):
     
     Uses last hidden state for prediction.
     """
-    
+
     def __init__(
         self,
         input_dim: int,
@@ -32,12 +32,12 @@ class LSTMForecaster(nn.Module):
             output_dim: Output dimension
         """
         super().__init__()
-        
+
         self.input_dim = input_dim
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.output_dim = output_dim
-        
+
         # LSTM
         self.lstm = nn.LSTM(
             input_size=input_dim,
@@ -46,10 +46,10 @@ class LSTMForecaster(nn.Module):
             dropout=dropout if num_layers > 1 else 0,
             batch_first=True,
         )
-        
+
         # Output projection
         self.fc = nn.Linear(hidden_size, output_dim)
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
@@ -60,15 +60,15 @@ class LSTMForecaster(nn.Module):
         """
         # LSTM
         lstm_out, (hidden, cell) = self.lstm(x)
-        
+
         # Use last hidden state
         last_hidden = hidden[-1]  # (batch, hidden_size)
-        
+
         # Project to output
         out = self.fc(last_hidden)  # (batch, output_dim)
-        
+
         return out
-    
+
     @property
     def n_params(self) -> int:
         """Number of trainable parameters."""
@@ -77,7 +77,7 @@ class LSTMForecaster(nn.Module):
 
 class MultiStepLSTM(nn.Module):
     """Multi-step LSTM forecaster."""
-    
+
     def __init__(
         self,
         input_dim: int,
@@ -87,9 +87,9 @@ class MultiStepLSTM(nn.Module):
         horizon: int = 1,
     ):
         super().__init__()
-        
+
         self.horizon = horizon
-        
+
         self.lstm = nn.LSTM(
             input_size=input_dim,
             hidden_size=hidden_size,
@@ -97,9 +97,9 @@ class MultiStepLSTM(nn.Module):
             dropout=dropout if num_layers > 1 else 0,
             batch_first=True,
         )
-        
+
         self.fc = nn.Linear(hidden_size, horizon)
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Predict multiple steps ahead."""
         lstm_out, (hidden, cell) = self.lstm(x)

@@ -4,13 +4,13 @@ Reproducibility and Environment Utilities
 Set seeds, capture environment, config hashing.
 """
 
-import os
-import random
 import hashlib
 import json
-from pathlib import Path
-from typing import Dict, Any, Optional
+import os
 import platform
+import random
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -27,10 +27,10 @@ def set_global_seed(
     """
     # Python random
     random.seed(seed)
-    
+
     # NumPy
     np.random.seed(seed)
-    
+
     # PyTorch
     try:
         import torch
@@ -39,17 +39,17 @@ def set_global_seed(
         torch.cuda.manual_seed_all(seed)
     except ImportError:
         pass
-    
+
     # TensorFlow
     try:
         import tensorflow as tf
         tf.random.set_seed(seed)
     except ImportError:
         pass
-    
+
     # Environment variables
     os.environ['PYTHONHASHSEED'] = str(seed)
-    
+
     # Deterministic algorithms
     if deterministic:
         try:
@@ -58,7 +58,7 @@ def set_global_seed(
             torch.backends.cudnn.benchmark = False
         except ImportError:
             pass
-        
+
         # TensorFlow
         try:
             import tensorflow as tf
@@ -67,7 +67,7 @@ def set_global_seed(
             pass
 
 
-def capture_environment() -> Dict[str, Any]:
+def capture_environment() -> dict[str, Any]:
     """Capture environment information.
     
     Returns:
@@ -77,7 +77,7 @@ def capture_environment() -> Dict[str, Any]:
         "platform": platform.platform(),
         "python_version": platform.python_version(),
     }
-    
+
     # PyTorch
     try:
         import torch
@@ -93,20 +93,20 @@ def capture_environment() -> Dict[str, Any]:
             ]
     except ImportError:
         pass
-    
+
     # Qiskit
     try:
         import qiskit
         env["qiskit_version"] = qiskit.__version__
     except ImportError:
         pass
-    
+
     try:
         import qiskit_aer
         env["qiskit_aer_version"] = qiskit_aer.__version__
     except ImportError:
         pass
-    
+
     # Other key packages
     for pkg in ["numpy", "pandas", "scipy", "scikit-learn", "wandb"]:
         try:
@@ -114,7 +114,7 @@ def capture_environment() -> Dict[str, Any]:
             env[f"{pkg}_version"] = mod.__version__
         except ImportError:
             pass
-    
+
     # Git hash
     try:
         import subprocess
@@ -126,11 +126,11 @@ def capture_environment() -> Dict[str, Any]:
         env["git_hash"] = git_hash
     except Exception:
         pass
-    
+
     return env
 
 
-def config_hash(config: Dict) -> str:
+def config_hash(config: dict) -> str:
     """Generate deterministic hash for config.
     
     Args:
@@ -141,10 +141,10 @@ def config_hash(config: Dict) -> str:
     """
     # Sort keys for deterministic ordering
     config_str = json.dumps(config, sort_keys=True, default=str)
-    
+
     # Generate hash
     hash_obj = hashlib.md5(config_str.encode())
-    
+
     return hash_obj.hexdigest()[:8]
 
 
@@ -159,31 +159,31 @@ def save_environment_info(output_dir: Path) -> Path:
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     env = capture_environment()
-    
+
     filepath = output_dir / "environment.json"
     with open(filepath, 'w') as f:
         json.dump(env, f, indent=2)
-    
+
     return filepath
 
 
 class ReproducibilityContext:
     """Context manager for reproducible execution."""
-    
+
     def __init__(self, seed: int = 42, deterministic: bool = True):
         self.seed = seed
         self.deterministic = deterministic
         self.old_state = {}
-    
+
     def __enter__(self):
         # Save current state
         self.old_state = {
             "random_state": random.getstate(),
             "numpy_state": np.random.get_state(),
         }
-        
+
         try:
             import torch
             self.old_state["torch_state"] = torch.get_rng_state()
@@ -191,17 +191,17 @@ class ReproducibilityContext:
                 self.old_state["torch_cuda_state"] = torch.cuda.get_rng_state_all()
         except ImportError:
             pass
-        
+
         # Set seeds
         set_global_seed(self.seed, self.deterministic)
-        
+
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         # Restore state
         random.setstate(self.old_state.get("random_state"))
         np.random.set_state(self.old_state.get("numpy_state"))
-        
+
         try:
             import torch
             torch.set_rng_state(self.old_state.get("torch_state"))
@@ -209,24 +209,24 @@ class ReproducibilityContext:
                 torch.cuda.set_rng_state_all(self.old_state.get("torch_cuda_state"))
         except ImportError:
             pass
-        
+
         return False
 
 
-def get_gpu_info() -> Dict[str, Any]:
+def get_gpu_info() -> dict[str, Any]:
     """Get GPU information.
     
     Returns:
         GPU info dictionary
     """
     info = {"available": False, "devices": []}
-    
+
     try:
         import torch
         if torch.cuda.is_available():
             info["available"] = True
             info["count"] = torch.cuda.device_count()
-            
+
             for i in range(torch.cuda.device_count()):
                 info["devices"].append({
                     "id": i,
@@ -235,5 +235,5 @@ def get_gpu_info() -> Dict[str, Any]:
                 })
     except ImportError:
         pass
-    
+
     return info

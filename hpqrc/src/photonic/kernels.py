@@ -7,14 +7,14 @@ Provides various kernel initialization strategies for photonic delay loops:
 - Gabor: Gaussian-modulated sinusoids
 """
 
+
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
-from typing import Tuple
 
 
 def random_kernels(
-    shape: Tuple[int, ...],
+    shape: tuple[int, ...],
     seed: Optional[int] = None,
     scale: float = 1.0,
 ) -> torch.Tensor:
@@ -30,16 +30,16 @@ def random_kernels(
     """
     if seed is not None:
         torch.manual_seed(seed)
-    
+
     kernel = torch.randn(shape)
     # Xavier initialization
     nn.init.xavier_uniform_(kernel, gain=scale)
-    
+
     return kernel
 
 
 def chirp_kernels(
-    shape: Tuple[int, ...],
+    shape: tuple[int, ...],
     f_start: float = 0.1,
     f_end: float = 0.5,
 ) -> torch.Tensor:
@@ -56,7 +56,7 @@ def chirp_kernels(
         Tensor with chirp patterns
     """
     out_ch, in_ch, kernel_size = shape
-    
+
     kernels = []
     for i in range(out_ch):
         channel_kernels = []
@@ -65,20 +65,20 @@ def chirp_kernels(
             t = torch.arange(kernel_size, dtype=torch.float32)
             freq = torch.linspace(f_start, f_end, kernel_size)
             phase = 2 * np.pi * torch.cumsum(freq)
-            
+
             # Chirp with exponential decay
             decay = torch.exp(-t / (kernel_size / 3))
             chirp = decay * torch.cos(phase)
-            
+
             channel_kernels.append(chirp)
-        
+
         kernels.append(torch.stack(channel_kernels))
-    
+
     return torch.stack(kernels)
 
 
 def gabor_kernels(
-    shape: Tuple[int, ...],
+    shape: tuple[int, ...],
     frequencies: Optional[List[float]] = None,
     sigma: Optional[float] = None,
 ) -> torch.Tensor:
@@ -93,33 +93,33 @@ def gabor_kernels(
         Tensor with Gabor patterns
     """
     out_ch, in_ch, kernel_size = shape
-    
+
     if sigma is None:
         sigma = kernel_size / 6
-    
+
     if frequencies is None:
         frequencies = [0.1 + 0.1 * i for i in range(out_ch)]
-    
+
     kernels = []
     for i, freq in enumerate(frequencies):
         channel_kernels = []
         for j in range(in_ch):
             # Position around center
             t = torch.arange(kernel_size, dtype=torch.float32) - kernel_size / 2
-            
+
             # Gaussian envelope
             gaussian = torch.exp(-t**2 / (2 * sigma**2))
-            
+
             # Modulating sinusoid
             sinusoid = torch.cos(2 * np.pi * freq * t)
-            
+
             # Gabor wavelet
             gabor = gaussian * sinusoid
-            
+
             channel_kernels.append(gabor)
-        
+
         kernels.append(torch.stack(channel_kernels))
-    
+
     return torch.stack(kernels)
 
 
@@ -139,7 +139,7 @@ def initialize_bank(
         Initialized Conv1d layer
     """
     shape = bank.weight.shape
-    
+
     if strategy == "random":
         kernel = random_kernels(shape, **kwargs)
     elif strategy == "chirp":
@@ -151,24 +151,24 @@ def initialize_bank(
         nn.init.xavier_uniform_(kernel)
     else:
         raise ValueError(f"Unknown strategy: {strategy}")
-    
+
     with torch.no_grad():
         bank.weight.copy_(kernel)
-    
+
     return bank
 
 
 class KernelInitializer:
     """Container for kernel initialization utilities."""
-    
+
     @staticmethod
-    def random(shape: Tuple[int, ...], **kwargs) -> torch.Tensor:
+    def random(shape: tuple[int, ...], **kwargs) -> torch.Tensor:
         return random_kernels(shape, **kwargs)
-    
+
     @staticmethod
-    def chirp(shape: Tuple[int, ...], **kwargs) -> torch.Tensor:
+    def chirp(shape: tuple[int, ...], **kwargs) -> torch.Tensor:
         return chirp_kernels(shape, **kwargs)
-    
+
     @staticmethod
-    def gabor(shape: Tuple[int, ...], **kwargs) -> torch.Tensor:
+    def gabor(shape: tuple[int, ...], **kwargs) -> torch.Tensor:
         return gabor_kernels(shape, **kwargs)

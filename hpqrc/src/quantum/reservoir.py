@@ -5,7 +5,7 @@ Fixed-Hamiltonian quantum reservoir with Ising dynamics.
 Follows Qiskit 2.x migration rules:
 - Use SparsePauliOp from qiskit.quantum_info
 - Use AerSimulator from qiskit_aer
-- Use EstimatorV2 from qiskit_aer.primitives
+- Use Statevector for expectation values
 """
 
 import numpy as np
@@ -15,7 +15,6 @@ from typing import Optional, List, Tuple
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import SparsePauliOp, Statevector
 from qiskit_aer import AerSimulator
-from qiskit_aer.primitives import EstimatorV2
 
 
 class QuantumReservoir(nn.Module):
@@ -75,11 +74,7 @@ class QuantumReservoir(nn.Module):
         # Create simulator
         self.simulator = AerSimulator(method='statevector')
         
-        # Create estimator (Qiskit 2.x V2 primitive)
-        self.estimator = EstimatorV2(
-            backend=self.simulator,
-            options={"shots": None}  # Exact expectation values
-        )
+        # Use Statevector for expectation values (no EstimatorV2 backend needed)
     
     def _build_observables(self) -> List[SparsePauliOp]:
         """Build Pauli observables using SparsePauliOp.
@@ -124,10 +119,10 @@ class QuantumReservoir(nn.Module):
         
         for step in range(self.n_trotter_steps):
             # ZZ coupling (Ising interaction) - use CNOT + RZ
-            for i in range(self.n_qubits - 1:
-                qc.cnot(i, i + 1)
+            for i in range(self.n_qubits - 1):
+                qc.cx(i, i + 1)
                 qc.rz(self.J[i].item() * dt, i + 1)
-                qc.cnot(i, i + 1)
+                qc.cx(i, i + 1)
             
             # Transverse field - RX gates
             for i in range(self.n_qubits):
@@ -165,7 +160,7 @@ class QuantumReservoir(nn.Module):
             raise ValueError(f"Expected 2D or 3D input, got {x.dim()}D")
     
     def _process_batch(self, x: torch.Tensor) -> torch.Tensor:
-        """Process a batch of samples."""
+        """Process a batch of samples using Statevector."""
         batch_size = x.shape[0]
         outputs = []
         
@@ -176,12 +171,13 @@ class QuantumReservoir(nn.Module):
             # Build circuit
             circuit = self.build_circuit(features)
             
-            # Run estimator (Qiskit 2.x V2 pattern)
-            job = self.estimator.run([(circuit, self.observables)])
-            result = job.result()
+            # Get statevector and compute expectation values
+            sv = Statevector(circuit)
+            exp_values = []
+            for obs in self.observables:
+                exp_val = sv.expectation_value(obs).real
+                exp_values.append(exp_val)
             
-            # Extract expectation values
-            exp_values = result[0].data.evs
             outputs.append(exp_values)
         
         return torch.tensor(outputs, device=x.device, dtype=torch.float32)

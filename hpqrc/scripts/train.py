@@ -4,29 +4,28 @@ HPQRC Training Script
 Hydra-based CLI for training HPQRC and baseline models.
 """
 
-import hydra
-from omegaconf import DictConfig, OmegaConf
-import numpy as np
-import torch
 from pathlib import Path
-import wandb
-import warnings
 
-from src.models.hpqrc import HPQRC, PureQRC, PhotonicRC
+import hydra
+import torch
+import wandb
+from omegaconf import DictConfig, OmegaConf
+
+from src.data.preprocessing import create_sequences, normalize
+from src.data.synthetic import SyntheticConfig, generate_synthetic_ev_demand
+from src.evaluation.metrics import compute_all_metrics
 from src.models.esn import EchoStateNetwork
+from src.models.hpqrc import HPQRC, PhotonicRC, PureQRC
 from src.models.lstm_model import LSTMForecaster
 from src.models.transformer_model import TransformerForecaster
-from src.data.synthetic import generate_synthetic_ev_demand, SyntheticConfig
-from src.data.preprocessing import normalize, create_sequences
 from src.training.trainer import Trainer
-from src.evaluation.metrics import compute_all_metrics
-from src.utils.reproducibility import set_global_seed, capture_environment
+from src.utils.reproducibility import set_global_seed
 
 
 def create_model(cfg: DictConfig):
     """Create model from config."""
     model_name = cfg.model.name
-    
+
     if model_name == "hpqrc":
         from src.models.hpqrc import HPQRCConfig
         config = HPQRCConfig(
@@ -37,7 +36,7 @@ def create_model(cfg: DictConfig):
             ridge_alpha=cfg.model.get("ridge_alpha", 1.0),
         )
         return HPQRC(config, device=cfg.hardware.device, seed=cfg.seed)
-    
+
     elif model_name == "pure_qrc":
         return PureQRC(
             n_qubits=cfg.model.get("n_qubits", 8),
@@ -45,7 +44,7 @@ def create_model(cfg: DictConfig):
             device=cfg.hardware.device,
             seed=cfg.seed,
         )
-    
+
     elif model_name == "photonic_rc":
         return PhotonicRC(
             in_channels=cfg.model.get("in_channels", 1),
@@ -55,7 +54,7 @@ def create_model(cfg: DictConfig):
             device=cfg.hardware.device,
             seed=cfg.seed,
         )
-    
+
     elif model_name == "esn":
         return EchoStateNetwork(
             input_dim=cfg.data.input_dim,
@@ -63,7 +62,7 @@ def create_model(cfg: DictConfig):
             ridge_alpha=cfg.model.get("ridge_alpha", 1.0),
             seed=cfg.seed,
         )
-    
+
     elif model_name == "lstm":
         return LSTMForecaster(
             input_dim=cfg.data.input_dim,
@@ -71,7 +70,7 @@ def create_model(cfg: DictConfig):
             num_layers=cfg.model.get("num_layers", 2),
             dropout=cfg.model.get("dropout", 0.1),
         )
-    
+
     elif model_name == "transformer":
         return TransformerForecaster(
             input_dim=cfg.data.input_dim,
@@ -80,7 +79,7 @@ def create_model(cfg: DictConfig):
             num_layers=cfg.model.get("num_layers", 2),
             dropout=cfg.model.get("dropout", 0.1),
         )
-    
+
     else:
         raise ValueError(f"Unknown model: {model_name}")
 
@@ -88,7 +87,7 @@ def create_model(cfg: DictConfig):
 def load_data(cfg: DictConfig):
     """Load dataset from config."""
     data_name = cfg.data.name
-    
+
     if data_name == "synthetic":
         synthetic_cfg = SyntheticConfig(
             n_samples=cfg.data.get("n_samples", 175200),
@@ -96,25 +95,25 @@ def load_data(cfg: DictConfig):
             seed=cfg.seed,
         )
         df = generate_synthetic_ev_demand(synthetic_cfg)
-        
+
     else:
         raise ValueError(f"Unknown data: {data_name}")
-    
+
     # Normalize
     df_norm, scaler = normalize(df, method=cfg.data.get("normalize", "standard"))
-    
+
     # Create sequences
     X, y = create_sequences(
         df_norm["demand"].values,
         seq_len=cfg.data.seq_len,
         horizon=cfg.data.horizon,
     )
-    
+
     # Train/test split
     split_idx = int(len(X) * (1 - cfg.data.test_ratio))
     X_train, X_test = X[:split_idx], X[split_idx:]
     y_train, y_test = y[:split_idx], y[split_idx:]
-    
+
     return X_train, y_train, X_test, y_test, scaler
 
 
@@ -122,10 +121,10 @@ def load_data(cfg: DictConfig):
 def main(cfg: DictConfig):
     """Main training function."""
     print(OmegaConf.to_yaml(cfg))
-    
+
     # Set seed
     set_global_seed(cfg.seed, deterministic=True)
-    
+
     # Setup wandb
     if cfg.logging.wandb:
         wandb.init(
@@ -133,16 +132,16 @@ def main(cfg: DictConfig):
             name=f"{cfg.model.name}_{cfg.data.name}_{cfg.seed}",
             config=OmegaConf.to_container(cfg, resolve=True),
         )
-    
+
     # Load data
     print(f"\nLoading data: {cfg.data.name}")
     X_train, y_train, X_test, y_test, scaler = load_data(cfg)
     print(f"Train: {X_train.shape}, Test: {X_test.shape}")
-    
+
     # Create model
     print(f"\nCreating model: {cfg.model.name}")
     model = create_model(cfg)
-    
+
     # Train
     print("\nTraining...")
     trainer_config = {
@@ -150,19 +149,19 @@ def main(cfg: DictConfig):
         "lr": cfg.training.lr,
         "batch_size": cfg.training.batch_size,
     }
-    
+
     trainer = Trainer(
         model=model,
         config=trainer_config,
         device=cfg.hardware.device,
     )
-    
+
     # Convert to DataLoader format for RC
-    from torch.utils.data import TensorDataset, DataLoader
-    
+    from torch.utils.data import DataLoader, TensorDataset
+
     X_tensor = torch.tensor(X_train, dtype=torch.float32)
     y_tensor = torch.tensor(y_train, dtype=torch.float32)
-    
+
     if cfg.model.name in ["hpqrc", "pure_qrc", "photonic_rc"]:
         # RC model - fit directly
         model.fit(X_train, y_train.flatten())
@@ -173,20 +172,20 @@ def main(cfg: DictConfig):
         train_loader = DataLoader(train_ds, batch_size=cfg.training.batch_size)
         trainer.fit(train_loader)
         y_pred = trainer.predict(DataLoader(TensorDataset(torch.tensor(X_test, dtype=torch.float32))))
-    
+
     # Evaluate
     metrics = compute_all_metrics(y_test.flatten(), y_pred.flatten())
     print(f"\nMetrics: {metrics}")
-    
+
     # Log to wandb
     if cfg.logging.wandb:
         wandb.log(metrics)
         wandb.finish()
-    
+
     # Save results
     output_dir = Path(cfg.logging.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     import json
     results = {
         "model": cfg.model.name,
@@ -194,10 +193,10 @@ def main(cfg: DictConfig):
         "seed": cfg.seed,
         "metrics": metrics,
     }
-    
+
     with open(output_dir / f"{cfg.model.name}_{cfg.data.name}_{cfg.seed}.json", "w") as f:
         json.dump(results, f, indent=2)
-    
+
     print(f"\nResults saved to {output_dir}")
 
 

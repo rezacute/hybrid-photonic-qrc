@@ -2,13 +2,13 @@
 Test fixtures for HPQRC tests.
 """
 
-import pytest
-import numpy as np
-import torch
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
-from src.data.synthetic import generate_synthetic_ev_demand, SyntheticConfig
+import numpy as np
+import pytest
+
+from src.data.synthetic import SyntheticConfig, generate_synthetic_ev_demand
 from src.models.hpqrc import HPQRCConfig
 
 

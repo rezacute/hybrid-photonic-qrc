@@ -1,243 +1,353 @@
 """
-HPQRC: Hybrid Photonic-Quantum Reservoir Computing Model
+HPQRC Model - Full Hybrid Photonic-Quantum Reservoir Computing Pipeline
 
-This module implements the full HPQRC architecture combining:
-1. Photonic Delay-Loop Emulation Layer (PDEL)
-2. Quantum Reservoir
-3. Linear Readout
+Orchestrates photonic delay loops, quantum reservoir, and readout.
 """
 
+import numpy as np
 import torch
 import torch.nn as nn
-from typing import Optional, Dict, Any
-import numpy as np
+from dataclasses import dataclass
+from typing import Optional, Literal
+from pathlib import Path
 
 from ..photonic.delay_loop import PhotonicDelayLoopEmulator
 from ..quantum.reservoir import QuantumReservoir
-from ..readout.ridge import RidgeReadout, TrainableLinearReadout
+from ..readout.ridge import RidgeReadout
 
 
-class HPQRC(nn.Module):
-    """Hybrid Photonic-Quantum Reservoir Computing Model.
+@dataclass
+class HPQRCConfig:
+    """Configuration for HPQRC model."""
+    # Photonic layer
+    in_channels: int = 1
+    n_banks: int = 5
+    kernel_sizes: list = None
+    features_per_bank: int = 16
+    activation: str = "tanh"
+    frozen_kernels: bool = False
+    dropout: float = 0.0
     
-    Architecture:
-    1. Photonic Delay-Loop Emulation (PDEL) - multiple temporal scales
-    2. Quantum Reservoir - fixed, untrainable quantum circuit
-    3. Linear Readout - Ridge regression or trainable linear
+    # Quantum layer
+    n_qubits: int = 8
+    coupling_range: tuple = (0.5, 1.5)
+    field_range: tuple = (0.5, 1.5)
+    evolution_time: float = 1.0
+    n_trotter_steps: int = 10
+    
+    # Readout
+    ridge_alpha: float = 1.0
+    
+    # Feature mode
+    feature_mode: Literal["phot+qrc", "qrc-only", "phot-only"] = "phot+qrc"
+    
+    def __post_init__(self):
+        if self.kernel_sizes is None:
+            self.kernel_sizes = [4, 24, 96, 168, 672]
+
+
+class HPQRC:
+    """Full Hybrid Photonic-Quantum Reservoir Computing pipeline.
+    
+    Combines:
+    - Photonic Delay-Loop Emulation (PDEL)
+    - Quantum Reservoir Computing (QRC)
+    - Ridge Regression Readout
     """
     
     def __init__(
         self,
-        input_dim: int = 1,
-        # Photonic config
-        photonic_enabled: bool = True,
-        n_banks: int = 5,
-        kernel_sizes: list = None,
-        d_model: int = 32,
-        kernel_init: str = "random",
-        # Quantum config
-        quantum_enabled: bool = True,
-        n_qubits: int = 6,
-        n_layers: int = 1,
-        coupling_strength: float = 1.0,
-        transverse_field: float = 0.5,
-        # Readout config
-        readout_type: str = "ridge",  # "ridge" or "trainable"
-        alpha: float = 1.0,
-        # Training config
-        training_style: str = "rc",  # "rc" = fit only readout, "dl" = backprop all
+        config: HPQRCConfig,
+        device: str = "cuda",
+        seed: int = 42,
     ):
-        super().__init__()
+        self.config = config
+        self.device = device
+        self.seed = seed
         
-        self.input_dim = input_dim
-        self.photonic_enabled = photonic_enabled
-        self.quantum_enabled = quantum_enabled
-        self.training_style = training_style
+        # Set seeds
+        np.random.seed(seed)
+        torch.manual_seed(seed)
         
-        # Default kernel sizes (sub-hourly to weekly)
-        if kernel_sizes is None:
-            kernel_sizes = [4, 24, 96, 168, 672]
-        self.kernel_sizes = kernel_sizes
+        # Initialize components
+        self._init_photonic()
+        self._init_quantum()
+        self._init_readout()
         
-        # Photonic layer
-        if photonic_enabled:
-            self.photonic = PhotonicDelayLoopEmulator(
-                input_dim=input_dim,
-                d_model=d_model,
-                kernel_sizes=kernel_sizes,
-                kernel_init=kernel_init,
-            )
-            self.photonic_output_dim = self.photonic.get_output_dim()
-        else:
-            self.photonic = None
-            self.photonic_output_dim = 0
-        
-        # Quantum reservoir
-        if quantum_enabled:
-            self.quantum = QuantumReservoir(
-                n_qubits=n_qubits,
-                n_layers=n_layers,
-                coupling_strength=coupling_strength,
-                transverse_field=transverse_field,
-            )
-            self.quantum_output_dim = self.quantum.get_output_dim()
-        else:
-            self.quantum = None
-            self.quantum_output_dim = 0
-        
-        # Combined feature dimension
-        self.feature_dim = self.photonic_output_dim + self.quantum_output_dim
-        
-        # Readout layer
-        if readout_type == "ridge":
-            self.readout = RidgeReadout(
-                input_dim=self.feature_dim,
-                output_dim=1,
-                alpha=alpha,
-            )
-        elif readout_type == "trainable":
-            self.readout = TrainableLinearReadout(
-                input_dim=self.feature_dim,
-                output_dim=1,
-            )
-        else:
-            raise ValueError(f"Unknown readout type: {readout_type}")
-        
-        self.readout_type = readout_type
+        self._is_fitted = False
     
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass through the model.
+    def _init_photonic(self):
+        """Initialize photonic delay-loop emulator."""
+        self.photonic = PhotonicDelayLoopEmulator(
+            in_channels=self.config.in_channels,
+            n_banks=self.config.n_banks,
+            kernel_sizes=self.config.kernel_sizes,
+            features_per_bank=self.config.features_per_bank,
+            activation=self.config.activation,
+            frozen_kernels=self.config.frozen_kernels,
+            dropout=self.config.dropout,
+        ).to(self.device)
+        
+        self.photonic.eval()  # No training for photonic
+    
+    def _init_quantum(self):
+        """Initialize quantum reservoir."""
+        self.quantum = QuantumReservoir(
+            n_qubits=self.config.n_qubits,
+            coupling_range=self.config.coupling_range,
+            field_range=self.config.field_range,
+            evolution_time=self.config.evolution_time,
+            n_trotter_steps=self.config.n_trotter_steps,
+            seed=self.seed,
+        ).to(self.device)
+        
+        self.quantum.eval()  # No training for quantum
+    
+    def _init_readout(self):
+        """Initialize Ridge readout."""
+        self.readout = RidgeReadout(alpha=self.config.ridge_alpha)
+    
+    def extract_features(self, x_batch: np.ndarray) -> np.ndarray:
+        """Extract features from input using photonic + quantum layers.
         
         Args:
-            x: Input time series of shape (batch, seq_len, input_dim)
+            x_batch: Input of shape (batch, seq_len) or (batch, 1, seq_len)
         
         Returns:
-            Predictions of shape (batch, seq_len - lookback)
+            Feature array of shape (batch, feature_dim)
         """
-        batch_size, seq_len, _ = x.shape
+        # Ensure correct shape
+        if x_batch.ndim == 2:
+            x_batch = x_batch[:, np.newaxis, :]  # (batch, 1, seq)
         
-        # Get features from photonic layer
-        if self.photonic_enabled:
-            photonic_features = self.photonic(x)  # (batch, seq', photonic_dim)
-        else:
-            photonic_features = None
+        x_tensor = torch.tensor(x_batch, dtype=torch.float32, device=self.device)
         
-        # Get features from quantum reservoir
-        if self.quantum_enabled:
-            # For RC style, we process the last timestep
-            if self.training_style == "rc":
-                # Use mean of photonic features as input to quantum
-                if photonic_features is not None:
-                    quantum_input = photonic_features.mean(dim=1)  # (batch, photonic_dim)
-                    # Project to n_qubits if needed
-                    if quantum_input.shape[-1] != self.quantum.n_qubits:
-                        # Use first n_qubits dimensions
-                        quantum_input = quantum_input[:, :self.quantum.n_qubits]
-                else:
-                    quantum_input = x[:, -1, :]  # Use last timestep
+        features_list = []
+        
+        # Photonic features
+        if self.config.feature_mode in ["phot+qrc", "phot-only"]:
+            with torch.no_grad():
+                phot_out = self.photonic(x_tensor)  # (batch, phot_dim, seq)
+                # Take last time step
+                phot_feat = phot_out[:, :, -1].cpu().numpy()
+                features_list.append(phot_feat)
+        
+        # Quantum features
+        if self.config.feature_mode in ["phot+qrc", "qrc-only"]:
+            # Need to prepare input for quantum
+            # Use photonic output or raw input
+            if self.config.feature_mode == "qrc-only":
+                # Use last value as quantum input
+                quantum_input = x_tensor[:, 0, -self.config.n_qubits:].cpu().numpy()
             else:
-                quantum_input = x
+                # Use photonic output summary
+                with torch.no_grad():
+                    phot_out = self.photonic(x_tensor)
+                    # Average pool over time
+                    quantum_input = phot_out.mean(dim=2).cpu().numpy()
+                    # Take last n_qubits
+                    quantum_input = quantum_input[:, :self.config.n_qubits]
             
-            quantum_features = self.quantum(quantum_input)  # (batch, quantum_dim)
-        else:
-            quantum_features = None
+            # Run quantum reservoir
+            q_input = torch.tensor(quantum_input, dtype=torch.float32, device=self.device)
+            with torch.no_grad():
+                q_feat = self.quantum(q_input).cpu().numpy()
+            features_list.append(q_feat)
         
-        # Combine features
-        features = []
-        if photonic_features is not None:
-            # Use last valid timestep
-            features.append(photonic_features[:, -1, :])
-        if quantum_features is not None:
-            features.append(quantum_features)
+        # Concatenate features
+        features = np.concatenate(features_list, axis=1)
         
-        combined = torch.cat(features, dim=-1)  # (batch, feature_dim)
-        
-        # Get prediction
-        output = self.readout(combined)  # (batch, 1)
-        
-        return output
+        return features
     
-    def fit_readout(self, X: np.ndarray, y: np.ndarray):
-        """Fit the readout layer (for RC-style training)."""
-        if self.readout_type == "ridge":
-            self.readout.fit(X, y)
-        else:
-            raise RuntimeError("Only ridge readout can be fit directly")
+    def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> "HPQRC":
+        """Fit the model on training data.
+        
+        Args:
+            X_train: Training input of shape (n_samples, seq_len)
+            y_train: Training targets of shape (n_samples,) or (n_samples, n_targets)
+        
+        Returns:
+            self
+        """
+        # Extract features
+        print("Extracting features...")
+        X_feat = self.extract_features(X_train)
+        
+        # Fit readout
+        print(f"Fitting readout on {X_feat.shape[0]} samples, {X_feat.shape[1]} features...")
+        self.readout.fit(X_feat, y_train)
+        
+        self._is_fitted = True
+        return self
     
-    def get_num_params(self) -> int:
-        """Get total number of trainable parameters."""
-        return sum(p.numel() for p in self.parameters())
+    def predict(self, X_test: np.ndarray) -> np.ndarray:
+        """Predict on new data.
+        
+        Args:
+            X_test: Test input of shape (n_samples, seq_len)
+        
+        Returns:
+            Predictions of shape (n_samples,) or (n_samples, n_targets)
+        """
+        if not self._is_fitted:
+            raise RuntimeError("Model not fitted. Call fit() first.")
+        
+        # Extract features
+        X_feat = self.extract_features(X_test)
+        
+        # Predict
+        return self.readout.predict(X_feat)
+    
+    @property
+    def total_params(self) -> int:
+        """Total number of parameters in the model."""
+        return self.n_photonic_params + self.n_quantum_params + self.readout.n_params
+    
+    @property
+    def trainable_params(self) -> int:
+        """Number of trainable parameters (readout only)."""
+        return self.readout.n_params
+    
+    @property
+    def n_photonic_params(self) -> int:
+        """Number of parameters in photonic layer."""
+        return self.photonic.n_trainable_params
+    
+    @property
+    def n_quantum_params(self) -> int:
+        """Number of parameters in quantum layer (fixed, not trainable)."""
+        return 0  # Quantum reservoir has no trainable params
+    
+    def save(self, path: Path):
+        """Save model state."""
+        state = {
+            "config": self.config,
+            "readout_coef": self.readout.coef_,
+            "readout_intercept": self.readout.intercept_,
+        }
+        np.savez(path, **state)
+    
+    def load(self, path: Path):
+        """Load model state."""
+        data = np.load(path)
+        # Reconstruct readout
+        # (simplified - full implementation would reconstruct model)
 
 
-class PureQRC(nn.Module):
-    """Pure Quantum Reservoir Computing (no photonic layer)."""
+class PureQRC:
+    """Quantum Reservoir Computing only (no photonic layer)."""
     
     def __init__(
         self,
-        input_dim: int = 1,
-        n_qubits: int = 6,
-        n_layers: int = 1,
-        readout_type: str = "ridge",
-        alpha: float = 1.0,
+        n_qubits: int = 8,
+        coupling_range: tuple = (0.5, 1.5),
+        field_range: tuple = (0.5, 1.5),
+        evolution_time: float = 1.0,
+        n_trotter_steps: int = 10,
+        ridge_alpha: float = 1.0,
+        device: str = "cuda",
+        seed: int = 42,
     ):
-        super().__init__()
+        self.n_qubits = n_qubits
+        self.device = device
+        
+        # Initialize quantum
+        np.random.seed(seed)
+        torch.manual_seed(seed)
         
         self.quantum = QuantumReservoir(
             n_qubits=n_qubits,
-            n_layers=n_layers,
-        )
+            coupling_range=coupling_range,
+            field_range=field_range,
+            evolution_time=evolution_time,
+            n_trotter_steps=n_trotter_steps,
+            seed=seed,
+        ).to(device)
+        self.quantum.eval()
         
-        self.input_proj = nn.Linear(input_dim, n_qubits)
-        
-        if readout_type == "ridge":
-            self.readout = RidgeReadout(n_qubits * 3, 1, alpha)
-        else:
-            self.readout = TrainableLinearReadout(n_qubits * 3, 1)
+        self.readout = RidgeReadout(alpha=ridge_alpha)
+        self._is_fitted = False
     
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        batch_size, seq_len, _ = x.shape
+    def extract_features(self, x: np.ndarray) -> np.ndarray:
+        """Extract quantum features."""
+        if x.ndim == 2:
+            x = x[:, np.newaxis, :]  # (batch, 1, seq)
         
-        # Project input
-        x_proj = self.input_proj(x)  # (batch, seq, n_qubits)
+        # Use last n_qubits values as quantum input
+        x_tensor = torch.tensor(x, dtype=torch.float32, device=self.device)
+        quantum_input = x_tensor[:, 0, -self.n_qubits:]
         
-        # Quantum processing (use last timestep)
-        quantum_out = self.quantum(x_proj[:, -1, :])
+        with torch.no_grad():
+            q_feat = self.quantum(quantum_input).cpu().numpy()
         
-        return self.readout(quantum_out)
+        return q_feat
+    
+    def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> "PureQRC":
+        X_feat = self.extract_features(X_train)
+        self.readout.fit(X_feat, y_train)
+        self._is_fitted = True
+        return self
+    
+    def predict(self, X_test: np.ndarray) -> np.ndarray:
+        if not self._is_fitted:
+            raise RuntimeError("Model not fitted")
+        X_feat = self.extract_features(X_test)
+        return self.readout.predict(X_feat)
 
 
-class PhotonicRC(nn.Module):
-    """Photonic Reservoir Computing (no quantum layer)."""
+class PhotonicRC:
+    """Photonic Delay-Loop + Readout (no quantum layer)."""
     
     def __init__(
         self,
-        input_dim: int = 1,
+        in_channels: int = 1,
         n_banks: int = 5,
         kernel_sizes: list = None,
-        d_model: int = 32,
-        readout_type: str = "ridge",
-        alpha: float = 1.0,
+        features_per_bank: int = 16,
+        activation: str = "tanh",
+        ridge_alpha: float = 1.0,
+        device: str = "cuda",
+        seed: int = 42,
     ):
-        super().__init__()
-        
+        self.device = device
         if kernel_sizes is None:
             kernel_sizes = [4, 24, 96, 168, 672]
         
+        torch.manual_seed(seed)
+        
         self.photonic = PhotonicDelayLoopEmulator(
-            input_dim=input_dim,
-            d_model=d_model,
+            in_channels=in_channels,
+            n_banks=n_banks,
             kernel_sizes=kernel_sizes,
-        )
+            features_per_bank=features_per_bank,
+            activation=activation,
+        ).to(device)
+        self.photonic.eval()
         
-        output_dim = self.photonic.get_output_dim()
-        
-        if readout_type == "ridge":
-            self.readout = RidgeReadout(output_dim, 1, alpha)
-        else:
-            self.readout = TrainableLinearReadout(output_dim, 1)
+        self.readout = RidgeReadout(alpha=ridge_alpha)
+        self._is_fitted = False
     
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        features = self.photonic(x)
-        # Use last timestep
-        return self.readout(features[:, -1, :])
+    def extract_features(self, x: np.ndarray) -> np.ndarray:
+        """Extract photonic features."""
+        if x.ndim == 2:
+            x = x[:, np.newaxis, :]
+        
+        x_tensor = torch.tensor(x, dtype=torch.float32, device=self.device)
+        
+        with torch.no_grad():
+            phot_out = self.photonic(x_tensor)
+            phot_feat = phot_out[:, :, -1].cpu().numpy()
+        
+        return phot_feat
+    
+    def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> "PhotonicRC":
+        X_feat = self.extract_features(X_train)
+        self.readout.fit(X_feat, y_train)
+        self._is_fitted = True
+        return self
+    
+    def predict(self, X_test: np.ndarray) -> np.ndarray:
+        if not self._is_fitted:
+            raise RuntimeError("Model not fitted")
+        X_feat = self.extract_features(X_test)
+        return self.readout.predict(X_feat)

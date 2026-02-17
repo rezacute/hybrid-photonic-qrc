@@ -1,97 +1,71 @@
 """
-Ridge Regression Readout
+Ridge Regression Readout for Reservoir Computing
 
-This module implements the Ridge Regression readout layer commonly used
-in Reservoir Computing.
+Simple sklearn-based Ridge regression wrapper for reservoir readout.
 """
 
-import torch
-import torch.nn as nn
 import numpy as np
 from sklearn.linear_model import Ridge
 from typing import Optional
 
 
-class RidgeReadout(nn.Module):
-    """Ridge Regression Readout for Reservoir Computing.
+class RidgeReadout:
+    """Sklearn Ridge regression wrapper for reservoir readout.
     
-    This is a non-differentiable readout that is fit using scikit-learn's
-    Ridge regression. It's the standard approach in RC methods.
+    Simple, fast, and effective for reservoir computing.
     """
     
-    def __init__(self, input_dim: int, output_dim: int, alpha: float = 1.0):
-        super().__init__()
-        
-        self.input_dim = input_dim
-        self.output_dim = output_dim
+    def __init__(self, alpha: float = 1.0):
+        """
+        Args:
+            alpha: Regularization strength (higher = more regularization)
+        """
         self.alpha = alpha
-        
-        # Ridge model (not a PyTorch module)
-        self.ridge = Ridge(alpha=alpha, fit_intercept=True)
+        self.model = Ridge(alpha=alpha, fit_intercept=True)
         self._is_fitted = False
     
     def fit(self, X: np.ndarray, y: np.ndarray) -> "RidgeReadout":
-        """Fit the Ridge regression model.
+        """Fit the Ridge model.
         
         Args:
-            X: Input features of shape (n_samples, input_dim)
-            y: Target values of shape (n_samples, output_dim)
+            X: Features of shape (n_samples, n_features)
+            y: Targets of shape (n_samples,) or (n_samples, n_targets)
         
         Returns:
-            Self
+            self
         """
-        self.ridge.fit(X, y)
+        self.model.fit(X, y)
         self._is_fitted = True
         return self
     
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Predict using the fitted Ridge model.
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        """Predict using fitted model.
         
         Args:
-            x: Input features of shape (batch, input_dim)
+            X: Features of shape (n_samples, n_features)
         
         Returns:
-            Predictions of shape (batch, output_dim)
+            Predictions of shape (n_samples,) or (n_samples, n_targets)
         """
         if not self._is_fitted:
-            raise RuntimeError("RidgeReadout must be fitted before inference")
-        
-        with torch.no_grad():
-            X = x.detach().cpu().numpy()
-            y_pred = self.ridge.predict(X)
-            return torch.from_numpy(y_pred).to(x.device)
+            raise RuntimeError("Model not fitted. Call fit() first.")
+        return self.model.predict(X)
     
-    def get_params(self) -> dict:
-        """Get model parameters."""
-        return {
-            "alpha": self.alpha,
-            "coef_": self.ridge.coef_,
-            "intercept_": self.ridge.intercept_,
-        }
-
-
-class TrainableLinearReadout(nn.Module):
-    """Trainable linear readout layer.
+    @property
+    def n_params(self) -> int:
+        """Number of parameters (weights + bias)."""
+        if not self._is_fitted:
+            return 0
+        n_features = self.model.coef_.shape[-1]
+        n_outputs = self.model.coef_.shape[0] if self.model.coef_.ndim > 1 else 1
+        return n_features * n_outputs + n_outputs  # weights + bias
     
-    Alternative to Ridge regression that is fully differentiable and
-    can be trained via backpropagation.
-    """
+    @property
+    def coef_(self) -> np.ndarray:
+        """Model coefficients."""
+        return self.model.coef_
     
-    def __init__(self, input_dim: int, output_dim: int):
-        super().__init__()
-        
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-        
-        self.linear = nn.Linear(input_dim, output_dim)
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            x: Input features of shape (batch, input_dim) or (batch, seq, input_dim)
-        
-        Returns:
-            Predictions of shape (batch, output_dim) or (batch, seq, output_dim)
-        """
-        return self.linear(x)
+    @property
+    def intercept_(self) -> np.ndarray:
+        """Model intercept."""
+        return self.model.intercept_
